@@ -1,1 +1,1 @@
-{% extends 'base.html' %}{% block content %}<section class="error-page"><h1>{{ code }}</h1><p>{{ message }}</p><a class="button" href="/">العودة إلى الرئيسية</a></section>{% endblock %}
+{% extends 'base.html' %}{% block content %}<section class="error-page"><h1>{{ code }}</h1><p>{{ message }}</p>{% if logs_path %}<p><strong>مجلد السجلات:</strong> <code>{{ logs_path }}</code></p><a class="button secondary" href="/logs">عرض مسار السجلات</a>{% endif %}<a class="button" href="/">العودة إلى الرئيسية</a></section>{% endblock %}
