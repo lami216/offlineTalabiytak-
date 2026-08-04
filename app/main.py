@@ -230,6 +230,24 @@ def create_app(
                 headers={"Cache-Control": "private, max-age=3600"},
             )
 
+        @app.get("/logs")
+        async def logs_folder(request: Request):
+            from app.dependencies import session_data
+
+            if not session_data(request):
+                raise HTTPException(403)
+            return app.state.templates.TemplateResponse(
+                request=request,
+                name="error.html",
+                context={
+                    "request": request,
+                    "code": "السجلات",
+                    "message": "تم حفظ تفاصيل الخطأ في سجل البرنامج.",
+                    "session": session_data(request),
+                    "logs_path": str(app.state.paths.logs),
+                },
+            )
+
     @app.middleware("http")
     async def headers(request: Request, call_next):
         request.state.request_id = request.headers.get("x-request-id", uuid.uuid4().hex)
@@ -275,16 +293,22 @@ def create_app(
     @app.exception_handler(Exception)
     async def unexpected(request, exc):
         logging.getLogger(__name__).exception(
-            "unexpected request error", extra={"request_id": request.state.request_id}
+            "unexpected request error request_id=%s",
+            request.state.request_id,
+            exc_info=(type(exc), exc, exc.__traceback__),
         )
+        message = f"حدث خطأ غير متوقع. رقم الطلب: {request.state.request_id}"
+        if settings.desktop_mode:
+            message += " تم حفظ تفاصيل الخطأ في سجل البرنامج."
         return app.state.templates.TemplateResponse(
             request=request,
             name="error.html",
             context={
                 "request": request,
                 "code": 500,
-                "message": f"حدث خطأ غير متوقع. رقم الطلب: {request.state.request_id}",
+                "message": message,
                 "session": None,
+                "logs_path": str(app.state.paths.logs) if settings.desktop_mode else None,
             },
             status_code=500,
         )

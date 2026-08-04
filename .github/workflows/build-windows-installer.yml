@@ -49,7 +49,7 @@ jobs:
           function Invoke-TalabiytakSmoke {
             param([string]$Executable, [string]$Report)
             Remove-Item $Report -Force -ErrorAction SilentlyContinue
-            $arguments = @("--smoke-test", "--smoke-report", "`"$Report`"") -join " "
+            $arguments = @("--real-desktop-smoke-test", "--smoke-report", "`"$Report`"") -join " "
             $process = Start-ProcessWithTimeout -FilePath $Executable -ArgumentList $arguments -WorkingDirectory (Split-Path $Executable) -TimeoutSeconds 120
             if (Test-Path $Report) { Get-Content $Report -Encoding UTF8 }
             if ($process.ExitCode -ne 0) { throw "Smoke test failed for $Executable with exit code $($process.ExitCode)" }
@@ -82,7 +82,7 @@ jobs:
           function Invoke-TalabiytakSmoke {
             param([string]$Executable, [string]$Report)
             Remove-Item $Report -Force -ErrorAction SilentlyContinue
-            $arguments = @("--smoke-test", "--smoke-report", "`"$Report`"") -join " "
+            $arguments = @("--real-desktop-smoke-test", "--smoke-report", "`"$Report`"") -join " "
             $process = Start-ProcessWithTimeout -FilePath $Executable -ArgumentList $arguments -WorkingDirectory (Split-Path $Executable) -TimeoutSeconds 120
             if (Test-Path $Report) { Get-Content $Report -Encoding UTF8 }
             if ($process.ExitCode -ne 0) { throw "Smoke test failed for $Executable with exit code $($process.ExitCode)" }
