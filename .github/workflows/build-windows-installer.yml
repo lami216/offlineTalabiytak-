@@ -45,15 +45,17 @@ jobs:
 
           Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
 
+          $installerArguments = @(
+              "/VERYSILENT"
+              "/SUPPRESSMSGBOXES"
+              "/NORESTART"
+              "/DIR=`"$target`""
+              "/LOG=`"$installLog`""
+          ) -join " "
+
           $process = Start-Process `
               -FilePath $installer `
-              -ArgumentList @(
-                  "/VERYSILENT",
-                  "/SUPPRESSMSGBOXES",
-                  "/NORESTART",
-                  "/DIR=$target",
-                  "/LOG=$installLog"
-              ) `
+              -ArgumentList $installerArguments `
               -Wait `
               -PassThru
 
