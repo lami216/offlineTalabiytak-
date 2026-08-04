@@ -1,0 +1,31 @@
+name: Build Windows Installer
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip}
+      - run: python -m pip install -e ".[dev]"
+      - run: pytest -q
+      - run: ruff check .
+      - run: ruff format --check .
+      - name: Download official offline WebView2 runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer/prerequisites
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile installer/prerequisites/MicrosoftEdgeWebView2RuntimeInstallerX64.exe
+          $signature=Get-AuthenticodeSignature installer/prerequisites/MicrosoftEdgeWebView2RuntimeInstallerX64.exe
+          if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft'){ throw 'Invalid WebView2 signature' }
+      - run: powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1
+      - uses: crazy-max/ghaction-chocolatey@v3
+        with: {args: install innosetup --yes --no-progress}
+      - run: iscc installer/Talabiytak.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Talabiytak-Windows-Installer
+          path: dist-installer/Talabiytak-Setup.exe

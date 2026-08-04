@@ -1,0 +1,5 @@
+APP_NAME = "Talabiytak"
+DISPLAY_NAME = "Talabiytak"
+PUBLISHER = "PLACEHOLDER_PUBLISHER"
+VERSION = "0.1.0"
+APP_ID = "com.talabiytak.desktop"
