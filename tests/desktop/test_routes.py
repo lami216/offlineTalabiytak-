@@ -61,3 +61,46 @@ async def test_health_ready_and_local_media_requires_session(tmp_path):
             assert (await client.get(f"/local-media/{stored.file_id}")).status_code == 200
             assert (await client.get("/local-media/../../etc/passwd")).status_code == 404
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_desktop_bootstrap_token_expiry_and_reuse(tmp_path, caplog):
+    import logging
+    import time
+
+    paths = DesktopPaths.create(tmp_path)
+    settings = Settings(
+        _env_file=None,
+        desktop_mode=True,
+        data_dir=str(tmp_path),
+        secret_key="x" * 40,
+        app_env="desktop",
+        trusted_hosts="*",
+    )
+    db = await SQLiteDatabase(paths.database).open()
+    app = create_app(settings, database=db)
+    app.state.paths = paths
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://127.0.0.1",
+            headers={"host": "127.0.0.1"},
+        ) as client:
+            caplog.set_level(logging.INFO, logger="app.main")
+            app.state.bootstrap_token = "correct-token"
+            app.state.bootstrap_token_expires_at = time.time() + 60
+            assert (await client.get("/desktop-bootstrap?token=wrong-token")).status_code == 403
+            r = await client.get("/desktop-bootstrap?token=correct-token", follow_redirects=False)
+            assert r.status_code == 303
+            assert (await client.get("/desktop-bootstrap?token=correct-token")).status_code == 403
+            app.state.bootstrap_token = "expired-token"
+            app.state.bootstrap_token_expires_at = time.time() - 1
+            assert (await client.get("/desktop-bootstrap?token=expired-token")).status_code == 403
+            assert app.state.bootstrap_token is None
+            app_logs = "\n".join(
+                record.getMessage() for record in caplog.records if record.name.startswith("app")
+            )
+            assert "correct-token" not in app_logs
+            assert "expired-token" not in app_logs
+            assert "wrong-token" not in app_logs
+    await db.close()

@@ -1,12 +1,17 @@
+import argparse
 import asyncio
+import json
 import logging
 import os
+import platform
 import secrets
 import socket
 import sys
 import tempfile
 import threading
 import time
+import traceback
+import urllib.request
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -26,43 +31,174 @@ def reserved_loopback_socket():
     return sock
 
 
-def _run_smoke_test():
+def _write_smoke_report(path, report):
+    if not path:
+        return
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _base_smoke_report():
+    return {
+        "success": False,
+        "stage": "starting",
+        "sys_executable": sys.executable,
+        "cwd": os.getcwd(),
+        "sys_meipass": getattr(sys, "_MEIPASS", None),
+        "application_version": VERSION,
+        "python_version": platform.python_version(),
+        "data_directory": None,
+        "database_path": None,
+        "exception_type": None,
+        "exception_message": None,
+        "traceback": None,
+        "stages": [],
+    }
+
+
+def _run_smoke_test(report_path=None):
     os.environ["TALABIYTAK_DESKTOP_LAUNCH"] = "1"
-    from app.database.sqlite import SQLiteDatabase
-    from app.main import create_app
+    report = _base_smoke_report()
+
+    def stage(name, **details):
+        report["stage"] = name
+        entry = {"stage": name, "success": True}
+        entry.update(details)
+        report["stages"].append(entry)
 
     async def smoke():
-        with tempfile.TemporaryDirectory(prefix="talabiytak-smoke-") as tmp:
-            root = DesktopPaths.create(Path(tmp))
-            secret = secrets.token_urlsafe(48)
+        from app.main import create_app
+
+        tmp_ctx = None
+        sock = None
+        server = None
+        thread = None
+        try:
+            stage("create-temp-directory")
+            tmp_ctx = tempfile.TemporaryDirectory(prefix="talabiytak-smoke-")
+            tmp = Path(tmp_ctx.name)
+            stage("create-desktop-paths")
+            root = DesktopPaths.create(tmp)
+            report["data_directory"] = str(root.root.parent)
+            report["database_path"] = str(root.database)
+            stage("create-settings")
             settings = Settings(
                 _env_file=None,
                 desktop_mode=True,
                 data_dir=str(root.root.parent),
-                secret_key=secret,
+                secret_key=secrets.token_urlsafe(48),
                 app_name=DISPLAY_NAME,
                 app_env="desktop",
                 trusted_hosts="127.0.0.1,localhost",
             )
-            db = await SQLiteDatabase(root.database).open()
-            app = create_app(settings, database=db)
-            app.state.paths = root
+            stage("create-app")
+            app = create_app(settings)
+            stage("enter-lifespan")
             async with app.router.lifespan_context(app):
-                assert await db.ping()
-                assert await app.state.catalog.readiness() == {
-                    "status": "ready",
-                    "database": "sqlite",
-                    "storage": "local",
-                }
-            await db.close()
+                db = app.state.database
+                report["database_path"] = str(getattr(db, "path", report["database_path"]))
+                if not await db.ping():
+                    raise RuntimeError("SQLite ping returned false")
+                stage("database-ping", actual=True)
+                expected = {"status": "ready", "database": "sqlite", "storage": "local"}
+                report["stage"] = "catalog-readiness"
+                actual = await app.state.catalog.readiness()
+                if actual != expected:
+                    raise RuntimeError(
+                        f"Unexpected readiness response: expected={expected!r}, actual={actual!r}"
+                    )
+                stage("catalog-readiness", expected=expected, actual=actual)
+                sock = reserved_loopback_socket()
+                port = sock.getsockname()[1]
+                config = uvicorn.Config(
+                    app,
+                    host="127.0.0.1",
+                    port=port,
+                    log_config=None,
+                    access_log=False,
+                    lifespan="off",
+                )
+                server = uvicorn.Server(config)
+                thread = threading.Thread(
+                    target=lambda: server.run(sockets=[sock]),
+                    name="smoke-fastapi",
+                    daemon=True,
+                )
+                thread.start()
+                deadline = time.monotonic() + 15
+                while not server.started and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                if not server.started:
+                    raise RuntimeError("local server did not start")
+                stage("server-started", port=port)
+                for endpoint in ("/health", "/ready"):
+                    url = f"http://127.0.0.1:{port}{endpoint}"
+                    with urllib.request.urlopen(url, timeout=10) as response:
+                        body = response.read().decode("utf-8")
+                        if response.status != 200:
+                            raise RuntimeError(
+                                f"{endpoint} returned HTTP {response.status}: {body}"
+                            )
+                        payload = json.loads(body)
+                    if endpoint == "/ready" and (
+                        payload.get("database"),
+                        payload.get("storage"),
+                    ) != ("sqlite", "local"):
+                        raise RuntimeError(f"Unexpected /ready payload: {payload!r}")
+                    stage(f"http-{endpoint.lstrip('/')}", status=200, actual=payload)
+                server.should_exit = True
+                thread.join(timeout=10)
+                if thread.is_alive():
+                    raise RuntimeError("local server thread did not stop")
+                stage("server-stopped")
+                sock.close()
+                sock = None
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(1)
+                    if probe.connect_ex(("127.0.0.1", port)) == 0:
+                        raise RuntimeError(f"local server port {port} is still open")
+                stage("server-port-closed", port=port)
+            stage("leave-lifespan")
+            stage("close-database")
+            tmp_ctx.cleanup()
+            tmp_ctx = None
+            stage("cleanup-temp-directory")
+            report["success"] = True
+            stage("completed")
+            return 0
+        finally:
+            if server is not None:
+                server.should_exit = True
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=5)
+            if sock is not None:
+                sock.close()
+            if tmp_ctx is not None:
+                tmp_ctx.cleanup()
 
-    asyncio.run(smoke())
-    return 0
+    try:
+        code = asyncio.run(smoke())
+    except Exception as exc:
+        report["success"] = False
+        report["exception_type"] = type(exc).__name__
+        report["exception_message"] = str(exc)
+        report["traceback"] = traceback.format_exc()
+        try:
+            print(report["traceback"], file=sys.stderr)
+        except Exception:
+            pass
+        code = 1
+    _write_smoke_report(report_path, report)
+    return code
 
 
 def main():
     if "--smoke-test" in sys.argv:
-        return _run_smoke_test()
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument("--smoke-test", action="store_true")
+        parser.add_argument("--smoke-report")
+        args, _ = parser.parse_known_args()
+        return _run_smoke_test(args.smoke_report)
     os.environ["TALABIYTAK_DESKTOP_LAUNCH"] = "1"
     from app.main import create_app
 
@@ -105,9 +241,17 @@ def main():
         )
         app = create_app(settings)
         app.state.bootstrap_token = secrets.token_urlsafe(48)
+        app.state.bootstrap_token_expires_at = time.time() + 60
         sock = reserved_loopback_socket()
         port = sock.getsockname()[1]
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None, access_log=False)
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_config=None,
+            access_log=False,
+            lifespan="off",
+        )
         server = uvicorn.Server(config)
         thread = threading.Thread(
             target=lambda: server.run(sockets=[sock]),
