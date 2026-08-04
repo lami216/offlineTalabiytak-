@@ -13,6 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12', cache: pip}
       - run: python -m pip install -e ".[web,dev]"
+      - run: python -c "from app.main import create_app; print('web import ok')"
       - run: python -m pytest -q tests/web
       - run: python -m ruff check .
       - run: python -m ruff format --check .
@@ -26,6 +27,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12', cache: pip}
       - run: python -m pip install -e ".[desktop,dev]"
+      - run: python -c "import desktop_launcher; print('desktop import ok')"
       - run: python -m pytest -q tests/desktop
       - run: python -m PyInstaller --noconfirm --clean Talabiytak.spec
       - name: Smoke test executable

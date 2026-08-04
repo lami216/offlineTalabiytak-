@@ -12,8 +12,6 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import Settings, get_settings
-from app.database import SQLiteDatabase
-from app.desktop_paths import DesktopPaths, resource_path
 from app.repositories import (
     ImportedImagesRepository,
     ImportsRepository,
@@ -21,13 +19,6 @@ from app.repositories import (
     ProductsRepository,
 )
 from app.repositories.orphans import OrphanCleanupRepository
-from app.repositories.sqlite import (
-    SQLiteImagesRepository,
-    SQLiteImportsRepository,
-    SQLiteOrdersRepository,
-    SQLiteOrphansRepository,
-    SQLiteProductsRepository,
-)
 from app.routes.orders import router as orders_router
 from app.routes.pricing import router as pricing_router
 from app.routes.web import router
@@ -42,7 +33,6 @@ from app.services.imports import ImportService
 from app.services.media import LocalMediaService
 from app.services.orders import OrderService
 from app.services.products import ProductService
-from app.services.storage import LocalImageStorage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 BASE = Path(__file__).parent
@@ -64,18 +54,28 @@ def asset_version(filename: str) -> str:
     return ASSET_VERSIONS[filename]
 
 
-def configure_services(app, database, storage):
-    if isinstance(database, SQLiteDatabase):
+def configure_services(app, database, storage, *, backend: str):
+    if backend == "sqlite":
+        from app.repositories.sqlite import (
+            SQLiteImagesRepository,
+            SQLiteImportsRepository,
+            SQLiteOrdersRepository,
+            SQLiteOrphansRepository,
+            SQLiteProductsRepository,
+        )
+
         imports, images = SQLiteImportsRepository(database), SQLiteImagesRepository(database)
         products, orders = SQLiteProductsRepository(database), SQLiteOrdersRepository(database)
         orphans = SQLiteOrphansRepository(database)
-    else:
+    elif backend == "mongo":
         imports, images, products = (
             ImportsRepository(database),
             ImportedImagesRepository(database),
             ProductsRepository(database),
         )
         orders, orphans = OrdersRepository(database), OrphanCleanupRepository(database)
+    else:
+        raise ValueError(f"unsupported database backend: {backend}")
     processor = ImageProcessingService(app.state.settings)
     app.state.imports = ImportService(
         app.state.settings, processor, storage, imports, images, products, orphans
@@ -116,6 +116,9 @@ def create_app(
         db = database
         if db is None:
             if settings.desktop_mode:
+                from app.database import SQLiteDatabase
+                from app.desktop_paths import DesktopPaths
+
                 app.state.paths = DesktopPaths.create(
                     Path(settings.data_dir) if settings.data_dir else None
                 )
@@ -126,15 +129,17 @@ def create_app(
                 client, db = create_mongo(settings)
                 await db.command("ping")
         app.state.mongo_client, app.state.database = client, db
-        configure_services(
-            app,
-            db,
-            LocalImageStorage(app.state.paths.images)
-            if settings.desktop_mode
-            else __import__(
+        if settings.desktop_mode:
+            from app.services.storage import LocalImageStorage
+
+            storage = LocalImageStorage(app.state.paths.images)
+            backend = "sqlite"
+        else:
+            storage = __import__(
                 "app.services.storage.imagekit", fromlist=["ImageKitStorage"]
-            ).ImageKitStorage(settings, imagekit_client, imagekit_upload_transport),
-        )
+            ).ImageKitStorage(settings, imagekit_client, imagekit_upload_transport)
+            backend = "mongo"
+        configure_services(app, db, storage, backend=backend)
         if settings.desktop_mode:
             try:
                 removed = await app.state.repositories.orders.cleanup_expired()
@@ -148,16 +153,20 @@ def create_app(
                 from app.database import close_mongo
 
                 await close_mongo(client)
-            elif isinstance(db, SQLiteDatabase):
+            elif settings.desktop_mode and db is not None:
                 await db.close()
 
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
     app.state.settings = settings
     app.state.security = Security(settings)
-    template_base = (
-        resource_path("app", "templates") if settings.desktop_mode else BASE / "templates"
-    )
-    static_base = resource_path("app", "static") if settings.desktop_mode else BASE / "static"
+    if settings.desktop_mode:
+        from app.desktop_paths import resource_path
+
+        template_base = resource_path("app", "templates")
+        static_base = resource_path("app", "static")
+    else:
+        template_base = BASE / "templates"
+        static_base = BASE / "static"
     app.state.templates = Jinja2Templates(directory=template_base)
     app.state.templates.env.globals["asset_version"] = asset_version
     app.state.templates.env.globals["imagekit_url"] = lambda asset: (
@@ -272,4 +281,14 @@ def create_app(
     return app
 
 
-app = None if os.environ.get("TALABIYTAK_DESKTOP_LAUNCH") == "1" else create_app()
+def _default_app():
+    if os.environ.get("TALABIYTAK_DESKTOP_LAUNCH") == "1":
+        return None
+    try:
+        return create_app()
+    except Exception:
+        logging.getLogger(__name__).info("Default ASGI app deferred until settings are configured")
+        return None
+
+
+app = _default_app()
