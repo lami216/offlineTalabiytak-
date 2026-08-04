@@ -139,17 +139,17 @@ def test_order_form_includes_quantity_notification_and_script(auth):
 
 def test_asset_version_is_content_based(tmp_path):
     asset = tmp_path / "asset.js"
-    asset.write_text("first")
+    asset.write_text("first", encoding="utf-8")
     first = _asset_version(asset)
-    asset.write_text("second")
+    asset.write_text("second", encoding="utf-8")
 
     assert len(first) == 12
     assert _asset_version(asset) != first
 
 
 def test_search_quantity_client_side_contract():
-    script = Path("app/static/orders.js").read_text()
-    styles = Path("app/static/style.css").read_text()
+    script = Path("app/static/orders.js").read_text(encoding="utf-8")
+    styles = Path("app/static/style.css").read_text(encoding="utf-8")
 
     assert 'card.className = "card product-search-card"' in script
     assert 'image.className = "product-search-image"' in script
@@ -207,8 +207,8 @@ def test_search_quantity_client_side_contract():
 
 
 def test_existing_and_new_selected_quantities_share_markup_contract():
-    template = Path("app/templates/order_form.html").read_text()
-    script = Path("app/static/orders.js").read_text()
+    template = Path("app/templates/order_form.html").read_text(encoding="utf-8")
+    script = Path("app/static/orders.js").read_text(encoding="utf-8")
 
     assert 'class="selected-product-name"' in template
     assert 'class="selected-product-row"' in template
@@ -226,7 +226,7 @@ def test_existing_and_new_selected_quantities_share_markup_contract():
 
 
 def test_reversed_visual_order_move_controls_contract():
-    script = Path("app/static/orders.js").read_text()
+    script = Path("app/static/orders.js").read_text(encoding="utf-8")
 
     assert "const next = card.nextElementSibling" in script
     assert "if (next) selected.insertBefore(next, card)" in script
