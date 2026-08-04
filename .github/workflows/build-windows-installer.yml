@@ -39,10 +39,75 @@ jobs:
       - name: Silent install smoke
         shell: pwsh
         run: |
-          $target = Join-Path $env:TEMP 'Talabiytak Install'
-          dist-installer\Talabiytak-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="$target"
-          & "$target\Talabiytak.exe" --smoke-test
-          & "$target\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          $installer = Join-Path $PWD "dist-installer\Talabiytak-Setup.exe"
+          $target = Join-Path $env:TEMP "Talabiytak Install"
+          $installLog = Join-Path $env:TEMP "Talabiytak-install.log"
+
+          Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+
+          $process = Start-Process `
+              -FilePath $installer `
+              -ArgumentList @(
+                  "/VERYSILENT",
+                  "/SUPPRESSMSGBOXES",
+                  "/NORESTART",
+                  "/DIR=$target",
+                  "/LOG=$installLog"
+              ) `
+              -Wait `
+              -PassThru
+
+          if ($process.ExitCode -ne 0) {
+              if (Test-Path $installLog) {
+                  Get-Content $installLog
+              }
+              throw "Installer failed with exit code $($process.ExitCode)"
+          }
+
+          $installedExe = Join-Path $target "Talabiytak.exe"
+
+          if (-not (Test-Path $installedExe)) {
+              Write-Host "Files found under target:"
+              Get-ChildItem $target -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "Installer log:"
+              if (Test-Path $installLog) {
+                  Get-Content $installLog
+              }
+              throw "Installed executable was not found at $installedExe"
+          }
+
+          & $installedExe --smoke-test
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Installed executable smoke test failed."
+          }
+
+          $uninstaller = Join-Path $target "unins000.exe"
+
+          if (-not (Test-Path $uninstaller)) {
+              throw "Uninstaller was not found."
+          }
+
+          $uninstall = Start-Process `
+              -FilePath $uninstaller `
+              -ArgumentList @(
+                  "/VERYSILENT",
+                  "/SUPPRESSMSGBOXES",
+                  "/NORESTART"
+              ) `
+              -Wait `
+              -PassThru
+
+          if ($uninstall.ExitCode -ne 0) {
+              throw "Uninstaller failed with exit code $($uninstall.ExitCode)"
+          }
+      - name: Upload installer log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Talabiytak-Windows-Installer-Install-Log
+          path: ${{ runner.temp }}/Talabiytak-install.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: Talabiytak-Windows-Installer
