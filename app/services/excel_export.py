@@ -16,8 +16,13 @@ from app.services.errors import AppError, ValidationError
 
 
 class ExcelExportService:
-    def __init__(self, settings, products, transport=None):
-        self.settings, self.products, self.transport = settings, products, transport
+    def __init__(self, settings, products, storage=None, transport=None):
+        self.settings, self.products, self.storage, self.transport = (
+            settings,
+            products,
+            storage,
+            transport,
+        )
 
     async def build(self, order):
         pictures = []
@@ -36,6 +41,11 @@ class ExcelExportService:
             raise AppError("تعذر إنشاء ملف Excel.") from exc
 
     async def _download(self, file_path):
+        if self.settings.desktop_mode:
+            data = await self.storage.read(file_path)
+            if len(data) > self.settings.excel_image_max_mb * 1024 * 1024:
+                raise AppError("حجم صورة المنتج يتجاوز الحد المسموح.")
+            return data
         url = self.settings.imagekit_delivery_url(file_path)
         expected = urlparse(self.settings.imagekit_url_endpoint)
         actual = urlparse(url)

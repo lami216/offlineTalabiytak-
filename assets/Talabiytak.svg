@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Talabiytak placeholder icon</title>
+  <desc id="desc">Temporary text-based placeholder icon for the Talabiytak desktop application.</desc>
+  <rect width="256" height="256" rx="48" fill="#14532d"/>
+  <circle cx="128" cy="128" r="86" fill="#f8fafc" opacity="0.95"/>
+  <text x="128" y="148" text-anchor="middle" font-family="Arial, sans-serif" font-size="76" font-weight="700" fill="#14532d">T</text>
+</svg>

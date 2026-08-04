@@ -10,14 +10,16 @@ class Settings(BaseSettings):
     app_name: str = "Product Image Manager"
     app_env: str = "production"
     debug: bool = False
-    secret_key: str
-    admin_username: str
-    admin_password: str
-    mongodb_uri: str
+    desktop_mode: bool = False
+    data_dir: str | None = None
+    secret_key: str = ""
+    admin_username: str = ""
+    admin_password: str = ""
+    mongodb_uri: str = ""
     mongodb_database: str = "talabiytak"
-    imagekit_private_key: str
-    imagekit_public_key: str
-    imagekit_url_endpoint: str
+    imagekit_private_key: str = ""
+    imagekit_public_key: str = ""
+    imagekit_url_endpoint: str = ""
     imagekit_folder: str = "/product-image-manager"
     max_excel_upload_mb: int = 100
     max_images_per_import: int = 2000
@@ -39,12 +41,18 @@ class Settings(BaseSettings):
     @field_validator("secret_key")
     @classmethod
     def strong_secret(cls, value: str) -> str:
+        if not value:
+            return value
         if len(value) < 32 or value.startswith("replace-"):
             raise ValueError("SECRET_KEY must be a random value of at least 32 characters")
         return value
 
     @model_validator(mode="after")
     def validate_imagekit(self):
+        if self.desktop_mode:
+            if not self.secret_key:
+                raise ValueError("desktop secret must be supplied by the launcher")
+            return self
         missing = [
             k
             for k in ("imagekit_private_key", "imagekit_public_key", "imagekit_url_endpoint")
