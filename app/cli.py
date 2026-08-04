@@ -44,7 +44,7 @@ def cleanup_abandoned_imports(dry_run: bool = typer.Option(False, "--dry-run")):
         settings = get_settings()
         state = type("State", (), {"settings": settings})()
         holder = type("Holder", (), {"state": state})()
-        configure_services(holder, database, ImageKitStorage(settings))
+        configure_services(holder, database, ImageKitStorage(settings), backend="mongo")
         return await holder.state.cleanup.cleanup_abandoned(
             settings.abandoned_import_retention_days, dry_run
         )
