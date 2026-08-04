@@ -1,6 +1,7 @@
 param(
   [switch]$SkipDownload,
-  [switch]$Release
+  [switch]$Release,
+  [switch]$SkipChecks
 )
 $ErrorActionPreference='Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
@@ -11,13 +12,15 @@ if (-not $python) { throw 'Python 3.12 is required on the build machine.' }
 $version = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
 if ($version -ne '3.12') { throw "Python 3.12 is required; found $version" }
 
-python -m pip install -e '.[desktop,dev]'
-python -m pytest -q
-python -m ruff check .
-python -m ruff format --check .
-git diff --check
-python -m PyInstaller --noconfirm --clean Talabiytak.spec
-& (Join-Path $root 'dist/Talabiytak/Talabiytak.exe') --smoke-test
+if (-not $SkipChecks) {
+  python -m pip install -e '.[desktop,dev]'
+  python -m pytest -q tests/desktop
+  python -m ruff check .
+  python -m ruff format --check .
+  git diff --check
+  python -m PyInstaller --noconfirm --clean Talabiytak.spec
+  & (Join-Path $root 'dist/Talabiytak/Talabiytak.exe') --smoke-test
+}
 
 $prereqDir = Join-Path $root 'installer/prerequisites'
 New-Item -ItemType Directory -Force $prereqDir | Out-Null

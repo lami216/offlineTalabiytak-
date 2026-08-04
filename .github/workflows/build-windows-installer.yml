@@ -5,18 +5,35 @@ on:
     branches: [main]
     tags: ['v*']
 jobs:
-  build:
+  web-tests:
+    name: Web tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip}
+      - run: python -m pip install -e ".[web,dev]"
+      - run: python -m pytest -q tests/web
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: git diff --check
+
+  desktop-tests-and-build:
+    name: Desktop tests and build
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12', cache: pip}
       - run: python -m pip install -e ".[desktop,dev]"
-      - run: pytest -q
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: git diff --check
-      - run: powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
+      - run: python -m pytest -q tests/desktop
+      - run: python -m PyInstaller --noconfirm --clean Talabiytak.spec
+      - name: Smoke test executable
+        shell: pwsh
+        run: '& (Join-Path $PWD "dist/Talabiytak/Talabiytak.exe") --smoke-test'
+      - name: Build installer
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipChecks
       - name: Silent install smoke
         shell: pwsh
         run: |
