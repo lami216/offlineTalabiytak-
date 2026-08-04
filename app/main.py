@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import Settings, get_settings
-from app.database import SQLiteDatabase, close_mongo, create_mongo
+from app.database import SQLiteDatabase
 from app.desktop_paths import DesktopPaths, resource_path
 from app.repositories import (
     ImportedImagesRepository,
@@ -39,9 +39,10 @@ from app.services.excel_export import ExcelExportService
 from app.services.excel_pricing import ExcelPricingService
 from app.services.image_processing import ImageProcessingService
 from app.services.imports import ImportService
+from app.services.media import LocalMediaService
 from app.services.orders import OrderService
 from app.services.products import ProductService
-from app.services.storage import ImageKitStorage, LocalImageStorage
+from app.services.storage import LocalImageStorage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 BASE = Path(__file__).parent
@@ -120,6 +121,8 @@ def create_app(
                 )
                 db = await SQLiteDatabase(app.state.paths.database).open()
             else:
+                from app.database import create_mongo
+
                 client, db = create_mongo(settings)
                 await db.command("ping")
         app.state.mongo_client, app.state.database = client, db
@@ -128,7 +131,9 @@ def create_app(
             db,
             LocalImageStorage(app.state.paths.images)
             if settings.desktop_mode
-            else ImageKitStorage(settings, imagekit_client, imagekit_upload_transport),
+            else __import__(
+                "app.services.storage.imagekit", fromlist=["ImageKitStorage"]
+            ).ImageKitStorage(settings, imagekit_client, imagekit_upload_transport),
         )
         if settings.desktop_mode:
             try:
@@ -140,6 +145,8 @@ def create_app(
             yield
         finally:
             if client is not None:
+                from app.database import close_mongo
+
                 await close_mongo(client)
             elif isinstance(db, SQLiteDatabase):
                 await db.close()
@@ -184,21 +191,22 @@ def create_app(
             return response
 
         @app.get("/local-media/{asset_id}")
-        async def local_media(asset_id: str):
-            if len(asset_id) != 64 or any(c not in "0123456789abcdef" for c in asset_id):
-                raise HTTPException(404)
-            row = await app.state.database.connection.execute(
-                "SELECT image_asset FROM imported_images WHERE json_extract(image_asset,'$.file_id')=? UNION SELECT primary_image FROM products WHERE json_extract(primary_image,'$.file_id')=? LIMIT 1",
-                (asset_id, asset_id),
-            )
-            record = await row.fetchone() if row else None
-            if not record:
-                raise HTTPException(404)
-            meta = __import__("json").loads(record[0])
-            path = app.state.storage._resolve(meta["file_path"])
+        async def local_media(request: Request, asset_id: str):
+            from app.dependencies import session_data
+
+            if not session_data(request):
+                raise HTTPException(403)
+            try:
+                media = await LocalMediaService(
+                    app.state.repositories.images,
+                    app.state.repositories.products,
+                    app.state.storage,
+                ).resolve(asset_id)
+            except Exception as exc:
+                raise HTTPException(404) from exc
             return FileResponse(
-                path,
-                media_type=meta["mime_type"],
+                media.path,
+                media_type=media.mime_type,
                 headers={"Cache-Control": "private, max-age=3600"},
             )
 

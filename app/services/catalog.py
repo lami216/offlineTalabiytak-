@@ -12,8 +12,21 @@ class CatalogQueryService:
         self.orders = orders
 
     async def readiness(self):
-        await self.database.command("ping")
-        return {"status": "ready", "database": "ok", "imagekit": "configured"}
+        ping = getattr(type(self.database), "ping", None)
+        if ping is not None:
+            ok = await self.database.ping()
+            database_name = (
+                "sqlite" if self.database.__class__.__name__ == "SQLiteDatabase" else "mongo"
+            )
+        else:
+            await self.database.command("ping")
+            ok = True
+            database_name = "mongo"
+        if not ok:
+            raise RuntimeError("database is not ready")
+        response = {"status": "ready", "database": database_name}
+        response["storage"] = "local" if database_name == "sqlite" else "imagekit"
+        return response
 
     async def dashboard(self):
         return (
