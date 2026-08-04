@@ -3,8 +3,10 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
+from app.config import Settings
 from app.database.sqlite import SQLiteDatabase
 from app.desktop_paths import DesktopPaths
+from app.main import create_app
 from app.services.storage.local import LocalImageStorage
 
 
@@ -47,3 +49,37 @@ async def test_local_storage_blocks_traversal(tmp_path):
         await storage.read("images/../../secret")
     with pytest.raises(ValueError):
         await storage.read("C:/Windows/system.ini")
+
+
+def desktop_settings(tmp_path):
+    return Settings(
+        _env_file=None,
+        desktop_mode=True,
+        data_dir=str(tmp_path),
+        secret_key="test-secret-key-that-is-long-enough",
+        app_env="desktop",
+        trusted_hosts="127.0.0.1,localhost",
+    )
+
+
+@pytest.mark.asyncio
+async def test_lifespan_owns_database_and_closes_once(tmp_path):
+    app = create_app(desktop_settings(tmp_path))
+    async with app.router.lifespan_context(app):
+        db = app.state.database
+        assert await db.ping()
+    assert db.connection is None
+
+
+@pytest.mark.asyncio
+async def test_lifespan_keeps_injected_database_open(tmp_path):
+    paths = DesktopPaths.create(tmp_path)
+    db = await SQLiteDatabase(paths.database).open()
+    app = create_app(desktop_settings(tmp_path), database=db)
+    app.state.paths = paths
+    async with app.router.lifespan_context(app):
+        assert await app.state.database.ping()
+    assert db.connection is not None
+    assert await db.ping()
+    await db.close()
+    assert db.connection is None

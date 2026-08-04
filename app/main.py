@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from hashlib import sha256
@@ -107,6 +108,7 @@ def create_app(
     database=None,
     imagekit_client=None,
     imagekit_upload_transport=None,
+    close_injected_database: bool = False,
 ):
     settings = settings or get_settings()
 
@@ -114,6 +116,7 @@ def create_app(
     async def lifespan(app):
         client = None
         db = database
+        owns_database = database is None
         if db is None:
             if settings.desktop_mode:
                 from app.database import SQLiteDatabase
@@ -153,7 +156,11 @@ def create_app(
                 from app.database import close_mongo
 
                 await close_mongo(client)
-            elif settings.desktop_mode and db is not None:
+            elif (
+                settings.desktop_mode
+                and db is not None
+                and (owns_database or close_injected_database)
+            ):
                 await db.close()
 
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
@@ -187,7 +194,11 @@ def create_app(
         @app.get("/desktop-bootstrap")
         async def desktop_bootstrap(request: Request, token: str):
             expected = getattr(app.state, "bootstrap_token", None)
-            if not expected or not __import__("hmac").compare_digest(token, expected):
+            expires_at = getattr(app.state, "bootstrap_token_expires_at", None)
+            expired = expires_at is not None and time.time() > expires_at
+            if expired:
+                app.state.bootstrap_token = None
+            if not expected or expired or not __import__("hmac").compare_digest(token, expected):
                 raise HTTPException(403)
             app.state.bootstrap_token = None
             response = RedirectResponse("/", 303)

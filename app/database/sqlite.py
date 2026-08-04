@@ -95,3 +95,4 @@ class SQLiteDatabase:
     async def close(self):
         if self.connection:
             await self.connection.close()
+            self.connection = None

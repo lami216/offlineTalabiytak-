@@ -30,85 +30,104 @@ jobs:
       - run: python -c "import desktop_launcher; print('desktop import ok')"
       - run: python -m pytest -q tests/desktop
       - run: python -m PyInstaller --noconfirm --clean Talabiytak.spec
-      - name: Smoke test executable
-        shell: pwsh
-        run: '& (Join-Path $PWD "dist/Talabiytak/Talabiytak.exe") --smoke-test'
-      - name: Build installer
-        shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipChecks
-      - name: Silent install smoke
+      - name: Smoke test dist executable
         shell: pwsh
         run: |
+          function Start-ProcessWithTimeout {
+            param([string]$FilePath, [string]$ArgumentList, [string]$WorkingDirectory, [int]$TimeoutSeconds = 120)
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $FilePath
+            $startInfo.Arguments = $ArgumentList
+            if ($WorkingDirectory) { $startInfo.WorkingDirectory = $WorkingDirectory }
+            $process = [System.Diagnostics.Process]::Start($startInfo)
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+              try { $process.Kill($true) } catch { $process.Kill() }
+              throw "Process timed out after $TimeoutSeconds seconds: $FilePath"
+            }
+            return $process
+          }
+          function Invoke-TalabiytakSmoke {
+            param([string]$Executable, [string]$Report)
+            Remove-Item $Report -Force -ErrorAction SilentlyContinue
+            $arguments = @("--smoke-test", "--smoke-report", "`"$Report`"") -join " "
+            $process = Start-ProcessWithTimeout -FilePath $Executable -ArgumentList $arguments -WorkingDirectory (Split-Path $Executable) -TimeoutSeconds 120
+            if (Test-Path $Report) { Get-Content $Report -Encoding UTF8 }
+            if ($process.ExitCode -ne 0) { throw "Smoke test failed for $Executable with exit code $($process.ExitCode)" }
+          }
+          Invoke-TalabiytakSmoke -Executable (Join-Path $PWD "dist/Talabiytak/Talabiytak.exe") -Report (Join-Path $env:RUNNER_TEMP "dist-smoke-report.json")
+      - name: Build installer
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -like 'v*') {
+            powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipChecks -Release
+          } else {
+            powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipChecks
+          }
+      - name: Silent install, installed smoke, and uninstall verification
+        shell: pwsh
+        run: |
+          function Start-ProcessWithTimeout {
+            param([string]$FilePath, [string]$ArgumentList, [string]$WorkingDirectory, [int]$TimeoutSeconds = 120)
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $FilePath
+            $startInfo.Arguments = $ArgumentList
+            if ($WorkingDirectory) { $startInfo.WorkingDirectory = $WorkingDirectory }
+            $process = [System.Diagnostics.Process]::Start($startInfo)
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+              try { $process.Kill($true) } catch { $process.Kill() }
+              throw "Process timed out after $TimeoutSeconds seconds: $FilePath"
+            }
+            return $process
+          }
+          function Invoke-TalabiytakSmoke {
+            param([string]$Executable, [string]$Report)
+            Remove-Item $Report -Force -ErrorAction SilentlyContinue
+            $arguments = @("--smoke-test", "--smoke-report", "`"$Report`"") -join " "
+            $process = Start-ProcessWithTimeout -FilePath $Executable -ArgumentList $arguments -WorkingDirectory (Split-Path $Executable) -TimeoutSeconds 120
+            if (Test-Path $Report) { Get-Content $Report -Encoding UTF8 }
+            if ($process.ExitCode -ne 0) { throw "Smoke test failed for $Executable with exit code $($process.ExitCode)" }
+          }
           $installer = Join-Path $PWD "dist-installer\Talabiytak-Setup.exe"
+          $distExe = Join-Path $PWD "dist\Talabiytak\Talabiytak.exe"
           $target = Join-Path $env:TEMP "Talabiytak Install"
-          $installLog = Join-Path $env:TEMP "Talabiytak-install.log"
-
+          $installLog = Join-Path $env:RUNNER_TEMP "Talabiytak-install.log"
+          $installListing = Join-Path $env:RUNNER_TEMP "installed-files.txt"
+          $hashReport = Join-Path $env:RUNNER_TEMP "desktop-hashes.txt"
           Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
-
-          $installerArguments = @(
-              "/VERYSILENT"
-              "/SUPPRESSMSGBOXES"
-              "/NORESTART"
-              "/DIR=`"$target`""
-              "/LOG=`"$installLog`""
-          ) -join " "
-
-          $process = Start-Process `
-              -FilePath $installer `
-              -ArgumentList $installerArguments `
-              -Wait `
-              -PassThru
-
-          if ($process.ExitCode -ne 0) {
-              if (Test-Path $installLog) {
-                  Get-Content $installLog
-              }
-              throw "Installer failed with exit code $($process.ExitCode)"
-          }
-
+          $installerArguments = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$target`"", "/LOG=`"$installLog`"") -join " "
+          $process = Start-ProcessWithTimeout -FilePath $installer -ArgumentList $installerArguments -TimeoutSeconds 300
+          if ($process.ExitCode -ne 0) { if (Test-Path $installLog) { Get-Content $installLog }; throw "Installer failed with exit code $($process.ExitCode)" }
           $installedExe = Join-Path $target "Talabiytak.exe"
-
-          if (-not (Test-Path $installedExe)) {
-              Write-Host "Files found under target:"
-              Get-ChildItem $target -Recurse -Force -ErrorAction SilentlyContinue
-              Write-Host "Installer log:"
-              if (Test-Path $installLog) {
-                  Get-Content $installLog
-              }
-              throw "Installed executable was not found at $installedExe"
-          }
-
-          & $installedExe --smoke-test
-
-          if ($LASTEXITCODE -ne 0) {
-              throw "Installed executable smoke test failed."
-          }
-
+          $required = @($installedExe, (Join-Path $target "_internal"), (Join-Path $target "unins000.exe"))
+          foreach ($path in $required) { if (-not (Test-Path $path)) { throw "Required installed path missing: $path" } }
+          Get-ChildItem $target -Recurse -Force | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Set-Content $installListing -Encoding UTF8
+          $distHash = (Get-FileHash $distExe -Algorithm SHA256).Hash
+          $installedHash = (Get-FileHash $installedExe -Algorithm SHA256).Hash
+          "dist=$distHash`ninstalled=$installedHash" | Set-Content $hashReport -Encoding UTF8
+          if ($distHash -ne $installedHash) { throw "Installed executable SHA-256 differs from dist executable. See $hashReport" }
+          Invoke-TalabiytakSmoke -Executable $installedExe -Report (Join-Path $env:RUNNER_TEMP "installed-smoke-report.json")
+          $sentinel = Join-Path $env:LOCALAPPDATA "Talabiytak\data\ci-data-retention-sentinel.txt"
+          New-Item -ItemType Directory -Force (Split-Path $sentinel) | Out-Null
+          Set-Content $sentinel "retain me" -Encoding UTF8
           $uninstaller = Join-Path $target "unins000.exe"
-
-          if (-not (Test-Path $uninstaller)) {
-              throw "Uninstaller was not found."
-          }
-
-          $uninstall = Start-Process `
-              -FilePath $uninstaller `
-              -ArgumentList @(
-                  "/VERYSILENT",
-                  "/SUPPRESSMSGBOXES",
-                  "/NORESTART"
-              ) `
-              -Wait `
-              -PassThru
-
-          if ($uninstall.ExitCode -ne 0) {
-              throw "Uninstaller failed with exit code $($uninstall.ExitCode)"
-          }
-      - name: Upload installer log on failure
+          $uninstallArguments = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -join " "
+          $uninstall = Start-ProcessWithTimeout -FilePath $uninstaller -ArgumentList $uninstallArguments -TimeoutSeconds 180
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed with exit code $($uninstall.ExitCode)" }
+          if ((Test-Path $target) -and (Test-Path $installedExe)) { throw "Installed executable remains after uninstall." }
+          if (-not (Test-Path $sentinel)) { throw "User data sentinel was removed by uninstall." }
+          Remove-Item $sentinel -Force
+      - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Talabiytak-Windows-Installer-Install-Log
-          path: ${{ runner.temp }}/Talabiytak-install.log
+          name: Talabiytak-Windows-Installer-Diagnostics
+          path: |
+            ${{ runner.temp }}/Talabiytak-install.log
+            ${{ runner.temp }}/dist-smoke-report.json
+            ${{ runner.temp }}/installed-smoke-report.json
+            dist-installer/BUILD_REPORT.txt
+            ${{ runner.temp }}/installed-files.txt
+            ${{ runner.temp }}/desktop-hashes.txt
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

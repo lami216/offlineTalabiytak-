@@ -1,9 +1,17 @@
+#ifndef AppVersion
 #define AppVersion "0.1.0"
+#endif
+#ifndef AppPublisher
+#define AppPublisher "PLACEHOLDER_PUBLISHER"
+#endif
+#ifndef AppName
+#define AppName "Talabiytak"
+#endif
 [Setup]
 AppId={{6BEE24BD-0171-4A6F-9EA1-02D188E23F2B}
-AppName=Talabiytak
+AppName={#AppName}
 AppVersion={#AppVersion}
-AppPublisher=PLACEHOLDER_PUBLISHER
+AppPublisher={#AppPublisher}
 DefaultDirName={localappdata}\Programs\Talabiytak
 PrivilegesRequired=lowest
 OutputDir=..\dist-installer
@@ -23,7 +31,7 @@ Name: desktopicon; Description: "Create a desktop shortcut"
 Name: "{autoprograms}\Talabiytak"; Filename: "{app}\Talabiytak.exe"
 Name: "{autodesktop}\Talabiytak"; Filename: "{app}\Talabiytak.exe"; Tasks: desktopicon
 [Run]
-Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "Installing Microsoft WebView2..."; Flags: waituntilterminated
+Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "Installing Microsoft WebView2..."; Flags: waituntilterminated; Check: NeedsWebView2
 Filename: "{app}\Talabiytak.exe"; Description: "Launch Talabiytak"; Flags: nowait postinstall skipifsilent
 [UninstallDelete]
 ; User data is deliberately not removed. Support can remove %LOCALAPPDATA%\Talabiytak manually after explicit consent.
@@ -42,4 +50,14 @@ procedure CurUninstallStepChanged(Step: TUninstallStep);
 begin
   if (Step = usPostUninstall) and DeleteData.Checked then
     DelTree(ExpandConstant('{localappdata}\Talabiytak'), True, True, True);
+end;
+
+
+function NeedsWebView2: Boolean;
+var
+  Version: String;
+begin
+  Result := not RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F1D9A2A6-BC09-4E1B-B349-3C5C9CF9B0E1}', 'pv', Version);
+  if Result then
+    Result := not RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F1D9A2A6-BC09-4E1B-B349-3C5C9CF9B0E1}', 'pv', Version);
 end;

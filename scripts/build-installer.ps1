@@ -33,21 +33,25 @@ if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notm
   throw 'Invalid WebView2 Runtime Authenticode signature.'
 }
 
-$publisher = python -c "from app.desktop_config import PUBLISHER; print(PUBLISHER)"
-if ($Release -and $publisher -eq 'PLACEHOLDER_PUBLISHER') { throw 'Release build requires a real publisher.' }
+$metadata = python -c "from app.desktop_config import APP_NAME, PUBLISHER, VERSION; print(APP_NAME); print(PUBLISHER); print(VERSION)"
+$appName = $metadata[0]
+$publisher = $metadata[1]
+$appVersion = $metadata[2]
+if ($Release -and $publisher -eq 'PLACEHOLDER_PUBLISHER') { throw 'Release build requires a real publisher in app/desktop_config.py.' }
 if ($Release -and -not (Test-Path 'assets/Talabiytak.ico')) { throw 'Release build requires assets/Talabiytak.ico.' }
+if ($Release -and $env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$appVersion") { throw "Release tag $($env:GITHUB_REF_NAME) must match app/desktop_config.py VERSION v$appVersion." }
 
 $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
 if (-not $iscc) {
   $candidate = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
   if (Test-Path $candidate) { $iscc = $candidate } else { throw 'Inno Setup 6 (ISCC.exe) is required.' }
 }
-& $iscc installer\Talabiytak.iss
+& $iscc "/DAppVersion=$appVersion" "/DAppPublisher=$publisher" "/DAppName=$appName" installer\Talabiytak.iss
 $installer = Join-Path $root 'dist-installer/Talabiytak-Setup.exe'
 if (-not (Test-Path $installer) -or ((Get-Item $installer).Length -le 0)) { throw 'Installer was not created.' }
 $sha = (Get-FileHash $installer -Algorithm SHA256).Hash
 $sha | Set-Content "$installer.sha256" -Encoding ascii
-"Installer=$installer`nSize=$((Get-Item $installer).Length)`nSHA256=$sha" | Set-Content (Join-Path $root 'dist-installer/BUILD_REPORT.txt') -Encoding utf8
+"Installer=$installer`nVersion=$appVersion`nPublisher=$publisher`nSize=$((Get-Item $installer).Length)`nSHA256=$sha" | Set-Content (Join-Path $root 'dist-installer/BUILD_REPORT.txt') -Encoding utf8
 Write-Host "Installer: $installer"
 Write-Host "Size: $((Get-Item $installer).Length) bytes"
 Write-Host "SHA256: $sha"
