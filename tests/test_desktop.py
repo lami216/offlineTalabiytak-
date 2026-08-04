@@ -19,7 +19,9 @@ async def test_first_run_and_migrations(tmp_path):
     paths = DesktopPaths.create(tmp_path)
     db = await SQLiteDatabase(paths.database).open()
     version = await (await db.connection.execute("SELECT version FROM schema_version")).fetchone()
-    assert version[0] == 1
+    from app.database.sqlite import LATEST_SCHEMA
+
+    assert version[0] == LATEST_SCHEMA
     assert paths.images.is_dir() and paths.logs.is_dir() and paths.temp.is_dir()
     await db.close()
     reopened = await SQLiteDatabase(paths.database).open()

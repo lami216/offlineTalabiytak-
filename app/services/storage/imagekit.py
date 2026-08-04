@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
 from urllib.parse import urlparse
@@ -12,27 +11,10 @@ from imagekitio.models.UpdateFileRequestOptions import UpdateFileRequestOptions
 from PIL import Image, UnidentifiedImageError
 
 from app.services.errors import ImageKitError, RemoteDeleteError
+from app.services.storage.base import FORMAT_METADATA, StoredAsset
 
 log = logging.getLogger(__name__)
 UPLOAD_URL = "https://upload.imagekit.io/api/v1/files/upload"
-FORMAT_METADATA = {
-    "PNG": ("png", "image/png"),
-    "JPEG": ("jpg", "image/jpeg"),
-    "WEBP": ("webp", "image/webp"),
-    "GIF": ("gif", "image/gif"),
-}
-
-
-@dataclass(frozen=True)
-class StoredAsset:
-    file_id: str
-    file_path: str
-    url: str
-    thumbnail_url: str | None
-    size: int | None = None
-    width: int | None = None
-    height: int | None = None
-    mime_type: str | None = None
 
 
 class ImageKitStorage:
@@ -169,10 +151,11 @@ class ImageKitStorage:
             file_path,
             self.settings.imagekit_delivery_url(file_path),
             raw.get("thumbnailUrl"),
-            actual_size,
-            actual_width,
-            actual_height,
+            file_id,
             raw.get("mime") or raw.get("mimeType") or mime_type,
+            actual_width or expected_width,
+            actual_height or expected_height,
+            actual_size,
         )
 
     async def delete(self, file_id):

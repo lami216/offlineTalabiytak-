@@ -1,11 +1,14 @@
+import asyncio
 import logging
 import os
 import secrets
 import socket
 import sys
+import tempfile
 import threading
 import time
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import uvicorn
 from filelock import FileLock, Timeout
@@ -15,13 +18,51 @@ from app.desktop_config import DISPLAY_NAME, VERSION
 from app.desktop_paths import DesktopPaths
 
 
-def free_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+def reserved_loopback_socket():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(128)
+    return sock
+
+
+def _run_smoke_test():
+    os.environ["TALABIYTAK_DESKTOP_LAUNCH"] = "1"
+    from app.database.sqlite import SQLiteDatabase
+    from app.main import create_app
+
+    async def smoke():
+        with tempfile.TemporaryDirectory(prefix="talabiytak-smoke-") as tmp:
+            root = DesktopPaths.create(Path(tmp))
+            secret = secrets.token_urlsafe(48)
+            settings = Settings(
+                _env_file=None,
+                desktop_mode=True,
+                data_dir=str(root.root.parent),
+                secret_key=secret,
+                app_name=DISPLAY_NAME,
+                app_env="desktop",
+                trusted_hosts="127.0.0.1,localhost",
+            )
+            db = await SQLiteDatabase(root.database).open()
+            app = create_app(settings, database=db)
+            app.state.paths = root
+            async with app.router.lifespan_context(app):
+                assert await db.ping()
+                assert await app.state.catalog.readiness() == {
+                    "status": "ready",
+                    "database": "sqlite",
+                    "storage": "local",
+                }
+            await db.close()
+
+    asyncio.run(smoke())
+    return 0
 
 
 def main():
+    if "--smoke-test" in sys.argv:
+        return _run_smoke_test()
     os.environ["TALABIYTAK_DESKTOP_LAUNCH"] = "1"
     from app.main import create_app
 
@@ -64,15 +105,21 @@ def main():
         )
         app = create_app(settings)
         app.state.bootstrap_token = secrets.token_urlsafe(48)
-        port = free_port()
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None)
+        sock = reserved_loopback_socket()
+        port = sock.getsockname()[1]
+        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None, access_log=False)
         server = uvicorn.Server(config)
-        thread = threading.Thread(target=server.run, name="local-fastapi", daemon=True)
+        thread = threading.Thread(
+            target=lambda: server.run(sockets=[sock]),
+            name="local-fastapi",
+            daemon=True,
+        )
         thread.start()
         deadline = time.monotonic() + 15
         while not server.started and time.monotonic() < deadline:
             time.sleep(0.05)
         if not server.started:
+            sock.close()
             raise RuntimeError("local server did not start")
         import webview
 
@@ -86,6 +133,8 @@ def main():
         webview.start(debug=False)
         server.should_exit = True
         thread.join(timeout=10)
+        if thread.is_alive():
+            logging.warning("local server did not stop within timeout")
         logging.info("Talabiytak %s stopped", VERSION)
     except Exception:
         logging.exception("desktop startup failed")

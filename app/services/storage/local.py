@@ -5,8 +5,7 @@ from pathlib import Path, PurePosixPath
 
 from PIL import Image, UnidentifiedImageError
 
-from app.services.errors import ImageKitError, RemoteDeleteError
-from app.services.storage.imagekit import FORMAT_METADATA, StoredAsset
+from app.services.storage.base import FORMAT_METADATA, StorageDeleteError, StorageError, StoredAsset
 
 
 class LocalImageStorage:
@@ -27,15 +26,15 @@ class LocalImageStorage:
 
     async def upload(self, data, extension, mime_type, width, height, **_kwargs):
         if not data:
-            raise ImageKitError("لا يمكن حفظ صورة فارغة")
+            raise StorageError("لا يمكن حفظ صورة فارغة")
         try:
             with Image.open(BytesIO(data)) as image:
                 detected, dimensions = FORMAT_METADATA.get((image.format or "").upper()), image.size
                 image.verify()
         except (UnidentifiedImageError, OSError, ValueError) as exc:
-            raise ImageKitError("الصورة غير صالحة") from exc
+            raise StorageError("الصورة غير صالحة") from exc
         if detected != (extension, mime_type) or dimensions != (width, height):
-            raise ImageKitError("بيانات الصورة لا تطابق محتواها")
+            raise StorageError("بيانات الصورة لا تطابق محتواها")
         digest = sha256(data).hexdigest()
         relative = f"images/{digest[:2]}/{digest[2:4]}/{digest}.{extension}"
         target = self._resolve(relative)
@@ -45,7 +44,15 @@ class LocalImageStorage:
             await asyncio.to_thread(temporary.write_bytes, data)
             temporary.replace(target)
         return StoredAsset(
-            digest, relative, f"/local-media/{digest}", None, len(data), width, height, mime_type
+            digest,
+            relative,
+            f"/local-media/{digest}",
+            None,
+            digest,
+            mime_type,
+            width,
+            height,
+            len(data),
         )
 
     async def read(self, relative):
@@ -66,7 +73,13 @@ class LocalImageStorage:
             for target in targets:
                 target.unlink(missing_ok=True)
         except (OSError, ValueError) as exc:
-            raise RemoteDeleteError("تعذر حذف الصورة المحلية") from exc
+            raise StorageDeleteError("تعذر حذف الصورة المحلية") from exc
 
     async def update_tags(self, _file_id, _tags):
         return True
+
+    def resolve_for_response(self, relative):
+        path = self._resolve(relative)
+        if not path.is_file():
+            raise FileNotFoundError(relative)
+        return path

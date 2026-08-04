@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from app.models import ImageAsset, Import, ImportedImage, Order, OrderItem, Product, now
+from app.services.errors import ValidationError
 from app.utils.objectid import new_id, to_object_id
 
 
@@ -63,7 +64,7 @@ class SQLiteImportsRepository(Base):
     async def create(self, filename):
         x = Import(new_id(), filename)
         await self.c.execute(
-            "INSERT INTO imports VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO imports (id, filename, status, counters, errors, processing_state, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
             (
                 x.id,
                 x.filename,
@@ -75,7 +76,7 @@ class SQLiteImportsRepository(Base):
                 x.updated_at.isoformat(),
             ),
         )
-        await self.c.commit()
+        await self.db.commit()
         return x
 
     async def get(self, id):
@@ -97,6 +98,8 @@ class SQLiteImportsRepository(Base):
 
     async def update(self, id, **values):
         current = await self.get(id)
+        if current is None:
+            return None
         for k, v in values.items():
             if v is not None:
                 setattr(current, k, v)
@@ -112,7 +115,7 @@ class SQLiteImportsRepository(Base):
                 current.id,
             ),
         )
-        await self.c.commit()
+        await self.db.commit()
         return current
 
     async def update_status(self, id, status, **kwargs):
@@ -134,7 +137,7 @@ class SQLiteImagesRepository(Base):
     async def create(self, x):
         x.id = x.id or new_id()
         await self.c.execute(
-            "INSERT INTO imported_images VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO imported_images (id, import_id, sequence_number, original_media_name, hash, status, duplicate_of, linked_product_id, dimensions, mime_type, image_asset, error_message, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 x.id,
                 x.import_id,
@@ -152,7 +155,7 @@ class SQLiteImagesRepository(Base):
                 x.updated_at.isoformat(),
             ),
         )
-        await self.c.commit()
+        await self.db.commit()
         return x
 
     async def get(self, id):
@@ -176,16 +179,20 @@ class SQLiteImagesRepository(Base):
                 x.id,
             ),
         )
-        await self.c.commit()
+        await self.db.commit()
         return x
 
     async def update_status(self, id, status):
         x = await self.get(id)
+        if x is None:
+            return None
         x.status = status
         return await self.update(x)
 
     async def link_product(self, id, pid):
         x = await self.get(id)
+        if x is None:
+            return None
         x.linked_product_id = pid
         x.status = "saved_as_product"
         return await self.update(x)
@@ -242,11 +249,18 @@ class SQLiteImagesRepository(Base):
             )
         ]
 
+    async def find_asset_by_file_id(self, file_id):
+        r = await self.one(
+            "SELECT image_asset FROM imported_images WHERE json_extract(image_asset,'$.file_id')=? AND image_asset IS NOT NULL AND status!='deleted' LIMIT 1",
+            (file_id,),
+        )
+        return asset(r["image_asset"]) if r else None
+
 
 class SQLiteProductsRepository(Base):
     async def create(self, x):
         await self.c.execute(
-            "INSERT INTO products VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO products (id, name, normalized_name, primary_image, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
             (
                 x.id,
                 x.name,
@@ -257,7 +271,7 @@ class SQLiteProductsRepository(Base):
                 x.updated_at.isoformat(),
             ),
         )
-        await self.c.commit()
+        await self.db.commit()
         return x
 
     async def get(self, id):
@@ -296,12 +310,12 @@ class SQLiteProductsRepository(Base):
                 x.id,
             ),
         )
-        await self.c.commit()
+        await self.db.commit()
         return x
 
     async def delete(self, id):
         r = await self.c.execute("DELETE FROM products WHERE id=?", (str(to_object_id(id)),))
-        await self.c.commit()
+        await self.db.commit()
         return r
 
     async def count(self):
@@ -322,6 +336,13 @@ class SQLiteProductsRepository(Base):
                 "SELECT * FROM products ORDER BY created_at DESC LIMIT ?", (limit,)
             )
         ]
+
+    async def find_asset_by_file_id(self, file_id):
+        r = await self.one(
+            "SELECT primary_image FROM products WHERE json_extract(primary_image,'$.file_id')=? LIMIT 1",
+            (file_id,),
+        )
+        return asset(r["primary_image"]) if r else None
 
 
 class SQLiteOrdersRepository(Base):
@@ -345,7 +366,7 @@ class SQLiteOrdersRepository(Base):
         await self.c.execute("BEGIN IMMEDIATE")
         try:
             await self.c.execute(
-                "INSERT INTO orders VALUES(?,?,?,?,?)",
+                "INSERT INTO orders (id, title, created_at, updated_at, expires_at) VALUES (?,?,?,?,?)",
                 (
                     o.id,
                     o.title,
@@ -355,7 +376,7 @@ class SQLiteOrdersRepository(Base):
                 ),
             )
             await self.c.executemany(
-                "INSERT INTO order_items VALUES(?,?,?,?,?)",
+                "INSERT INTO order_items (order_id, product_id, product_name, quantity, position) VALUES (?,?,?,?,?)",
                 [(o.id, i.product_id, i.product_name, i.quantity, i.position) for i in o.items],
             )
             await self.c.commit()
@@ -385,16 +406,18 @@ class SQLiteOrdersRepository(Base):
         ]
 
     async def update(self, o):
-        await self.delete_items(o.id)
-        await self.c.execute(
-            "UPDATE orders SET title=?,updated_at=? WHERE id=?",
-            (o.title, o.updated_at.isoformat(), o.id),
-        )
-        await self.c.executemany(
-            "INSERT INTO order_items VALUES(?,?,?,?,?)",
-            [(o.id, i.product_id, i.product_name, i.quantity, i.position) for i in o.items],
-        )
-        await self.c.commit()
+        async with self.db.transaction():
+            await self.delete_items(o.id)
+            result = await self.c.execute(
+                "UPDATE orders SET title=?,updated_at=? WHERE id=?",
+                (o.title, o.updated_at.isoformat(), o.id),
+            )
+            if result.rowcount == 0:
+                raise ValidationError("الطلبية غير موجودة")
+            await self.c.executemany(
+                "INSERT INTO order_items (order_id, product_id, product_name, quantity, position) VALUES (?,?,?,?,?)",
+                [(o.id, i.product_id, i.product_name, i.quantity, i.position) for i in o.items],
+            )
         return o
 
     async def delete_items(self, id):
@@ -404,14 +427,14 @@ class SQLiteOrdersRepository(Base):
         r = await self.c.execute(
             "DELETE FROM orders WHERE id=? AND expires_at>?", (id, datetime.now(UTC).isoformat())
         )
-        await self.c.commit()
+        await self.db.commit()
         return r
 
     async def cleanup_expired(self):
         r = await self.c.execute(
             "DELETE FROM orders WHERE expires_at<=?", (datetime.now(UTC).isoformat(),)
         )
-        await self.c.commit()
+        await self.db.commit()
         return r.rowcount
 
     async def count_active(self):
@@ -436,7 +459,7 @@ class SQLiteOrdersRepository(Base):
 class SQLiteOrphansRepository(Base):
     async def record(self, f, reason):
         await self.c.execute(
-            "INSERT INTO orphan_cleanup VALUES(?,?,'pending',?,?) ON CONFLICT(file_id) DO UPDATE SET reason=excluded.reason,updated_at=excluded.updated_at",
+            "INSERT INTO orphan_cleanup (file_id, reason, status, created_at, updated_at) VALUES (?,?,'pending',?,?) ON CONFLICT(file_id) DO UPDATE SET reason=excluded.reason,updated_at=excluded.updated_at",
             (f, str(reason)[:1000], now().isoformat(), now().isoformat()),
         )
-        await self.c.commit()
+        await self.db.commit()
