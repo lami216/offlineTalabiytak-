@@ -29,6 +29,7 @@ jobs:
       - run: python -m pip install -e ".[desktop,dev]"
       - run: python -c "import desktop_launcher; print('desktop import ok')"
       - run: python -m pytest -q tests/desktop
+      - run: python scripts/build_icon.py
       - run: python -m PyInstaller --noconfirm --clean Talabiytak.spec
       - name: Smoke test dist executable
         shell: pwsh

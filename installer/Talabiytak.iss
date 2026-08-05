@@ -5,7 +5,7 @@
 #define AppPublisher "PLACEHOLDER_PUBLISHER"
 #endif
 #ifndef AppName
-#define AppName "Talabiytak"
+#define AppName "طلبياتك"
 #endif
 [Setup]
 AppId={{6BEE24BD-0171-4A6F-9EA1-02D188E23F2B}
@@ -18,9 +18,7 @@ OutputDir=..\dist-installer
 OutputBaseFilename=Talabiytak-Setup
 Compression=lzma2
 SolidCompression=yes
-#ifexist "..\assets\Talabiytak.ico"
-SetupIconFile=..\assets\Talabiytak.ico
-#endif
+SetupIconFile=..\build-assets\Talabiytak.ico
 UninstallDisplayIcon={app}\Talabiytak.exe
 [Files]
 Source: "..\dist\Talabiytak\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -28,8 +26,8 @@ Source: "prerequisites\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; DestDir: "
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"
 [Icons]
-Name: "{autoprograms}\Talabiytak"; Filename: "{app}\Talabiytak.exe"
-Name: "{autodesktop}\Talabiytak"; Filename: "{app}\Talabiytak.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\Talabiytak.exe"; IconFilename: "{app}\Talabiytak.exe"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Talabiytak.exe"; Tasks: desktopicon; IconFilename: "{app}\Talabiytak.exe"
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "Installing Microsoft WebView2..."; Flags: waituntilterminated; Check: NeedsWebView2
 Filename: "{app}\Talabiytak.exe"; Description: "Launch Talabiytak"; Flags: nowait postinstall skipifsilent

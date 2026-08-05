@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{{ title or 'إدارة صور المنتجات' }}</title>
+  <title>{{ title or app_display_name }}</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/app-icon/32.png?v={{ icon_asset_version() }}">
+  <link rel="apple-touch-icon" href="/app-icon/192.png?v={{ icon_asset_version() }}">
   <link rel="stylesheet" href="{{ url_for('static',path='/style.css') }}?v={{ asset_version('style.css') }}">
 </head>
 <body>
@@ -11,7 +13,7 @@
 {% set path = request.url.path %}
 <header class="site-header">
   <div class="header-inner">
-    <a class="brand" href="/">إدارة صور المنتجات</a>
+    <a class="brand" href="/"><img class="brand-icon" src="/app-icon/192.png?v={{ icon_asset_version() }}" alt="">{{ app_display_name }}</a>
     <nav class="main-nav" aria-label="التنقل الرئيسي">
       <a class="nav-link{% if path == '/' %} nav-link-active{% endif %}" href="/"{% if path == '/' %} aria-current="page"{% endif %}>الرئيسية</a>
       <a class="nav-link{% if path == '/imports/new' %} nav-link-active{% endif %}" href="/imports/new"{% if path == '/imports/new' %} aria-current="page"{% endif %}>رفع ملف Excel</a>

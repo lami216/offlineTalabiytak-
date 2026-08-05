@@ -1,5 +1,9 @@
 import socket
+from pathlib import Path
 
+from PIL import Image
+
+from app.desktop_config import APP_ID, DISPLAY_NAME, EXECUTABLE_NAME
 from desktop_launcher import reserved_loopback_socket
 
 
@@ -18,3 +22,22 @@ def test_reserved_loopback_socket_binds_only_localhost():
                 raise AssertionError("port was not reserved")
     finally:
         sock.close()
+
+
+def test_branding_name_and_icon_configuration_are_stable():
+    assert DISPLAY_NAME == "طلبياتك"
+    assert EXECUTABLE_NAME == "Talabiytak.exe"
+    assert APP_ID == "com.talabiytak.desktop"
+    assert 'icon_path = "build-assets/Talabiytak.ico"' in Path("Talabiytak.spec").read_text()
+    installer = Path("installer/Talabiytak.iss").read_text(encoding="utf-8")
+    assert '#define AppName "طلبياتك"' in installer
+    assert "UninstallDisplayIcon={app}\\Talabiytak.exe" in installer
+
+
+def test_icon_source_is_valid_square_png():
+    source = Path("assets/Talabiytak-icon.png")
+    assert source.is_file()
+    with Image.open(source) as image:
+        assert image.format == "PNG"
+        assert image.width == image.height
+        assert image.width >= 512

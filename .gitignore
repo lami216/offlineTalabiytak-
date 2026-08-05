@@ -3,3 +3,6 @@ __pycache__/
 *.py[cod]
 .ruff_cache/
 .pytest_cache/
+
+build-assets/
+app/static/icons/*.png

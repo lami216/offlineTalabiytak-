@@ -1,5 +1,6 @@
 APP_NAME = "Talabiytak"
-DISPLAY_NAME = "Talabiytak"
+DISPLAY_NAME = "طلبياتك"
+EXECUTABLE_NAME = "Talabiytak.exe"
 PUBLISHER = "PLACEHOLDER_PUBLISHER"
 VERSION = "0.1.0"
 APP_ID = "com.talabiytak.desktop"
