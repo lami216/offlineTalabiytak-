@@ -46,7 +46,7 @@ async def test_order_repository_lifecycle_and_indexes(setup):
 
 
 @pytest.mark.asyncio
-async def test_expired_orders_are_hidden(setup):
+async def test_old_orders_remain_visible(setup):
     _, app, _, _, database = setup
     item = await product(app.state.repositories.products, "قديم")
     order = await app.state.orders.create("منتهية", [item.id], [1])
@@ -54,8 +54,8 @@ async def test_expired_orders_are_hidden(setup):
         {"_id": document_id(database, order.id)},
         {"$set": {"expires_at": now() - timedelta(days=1)}},
     )
-    assert await app.state.repositories.orders.get_active(order.id) is None
-    assert not await app.state.repositories.orders.list_active()
+    assert await app.state.repositories.orders.get_active(order.id) is not None
+    assert [o.id for o in await app.state.repositories.orders.list_active()] == [order.id]
 
 
 def document_id(database, value):

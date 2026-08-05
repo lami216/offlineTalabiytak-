@@ -21,6 +21,7 @@ from app.repositories import (
     ProductsRepository,
 )
 from app.repositories.orphans import OrphanCleanupRepository
+from app.routes.backup import router as backup_router
 from app.routes.orders import router as orders_router
 from app.routes.pricing import router as pricing_router
 from app.routes.web import router
@@ -39,7 +40,7 @@ from app.services.products import ProductService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 BASE = Path(__file__).parent
-VERSIONED_ASSETS = ("style.css", "orders.js", "app.js", "desktop_exports.js")
+VERSIONED_ASSETS = ("style.css", "orders.js", "app.js", "desktop_exports.js", "backup.js")
 
 
 def app_icon_source_path() -> Path:
@@ -188,12 +189,7 @@ def create_app(
             app.state.desktop_exports = getattr(
                 app.state, "desktop_exports", None
             ) or DesktopExportManager(export_root)
-            try:
-                app.state.desktop_exports.cleanup_expired()
-                removed = await app.state.repositories.orders.cleanup_expired()
-                logging.getLogger(__name__).info("Expired order cleanup removed %s orders", removed)
-            except Exception:
-                logging.getLogger(__name__).exception("Expired order cleanup failed")
+            app.state.desktop_exports.cleanup_expired()
         try:
             yield
         finally:
@@ -250,6 +246,7 @@ def create_app(
     app.include_router(router)
     app.include_router(orders_router)
     app.include_router(pricing_router)
+    app.include_router(backup_router)
 
     if settings.desktop_mode:
 

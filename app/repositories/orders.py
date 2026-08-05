@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 from app.repositories.mapping import oid, order_from_doc
 
 
@@ -35,19 +33,19 @@ class OrdersRepository:
         return order_from_doc(doc) if doc else None
 
     async def get_active(self, order_id):
-        doc = await self.collection.find_one(
-            {"_id": oid(order_id, "معرّف الطلبية"), "expires_at": {"$gt": datetime.now(UTC)}}
-        )
-        return order_from_doc(doc) if doc else None
+        return await self.get(order_id)
 
-    async def list_active(self, page=1, size=24):
+    async def list(self, page=1, size=24):
         cursor = (
-            self.collection.find({"expires_at": {"$gt": datetime.now(UTC)}})
+            self.collection.find({})
             .sort("created_at", -1)
             .skip((max(page, 1) - 1) * size)
             .limit(size)
         )
         return [order_from_doc(d) for d in await cursor.to_list(length=None)]
+
+    async def list_active(self, page=1, size=24):
+        return await self.list(page, size)
 
     async def update(self, order):
         doc = self._doc(order)
@@ -58,20 +56,18 @@ class OrdersRepository:
         return order
 
     async def delete(self, order_id):
-        return await self.collection.delete_one(
-            {"_id": oid(order_id), "expires_at": {"$gt": datetime.now(UTC)}}
-        )
+        return await self.collection.delete_one({"_id": oid(order_id)})
+
+    async def cleanup_expired(self):
+        return 0
 
     async def count_active(self):
-        return await self.collection.count_documents({"expires_at": {"$gt": datetime.now(UTC)}})
+        return await self.collection.count_documents({})
 
     async def active_product_references(self, product_id):
         return await self.collection.count_documents(
-            {
-                "expires_at": {"$gt": datetime.now(UTC)},
-                "items.product_id": oid(product_id, "معرّف المنتج"),
-            }
+            {"items.product_id": oid(product_id, "معرّف المنتج")}
         )
 
     async def recent(self, limit=6):
-        return await self.list_active(1, limit)
+        return await self.list(1, limit)

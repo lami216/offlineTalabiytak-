@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 
 from app.models import ImageAsset, Import, ImportedImage, Order, OrderItem, Product, now
 from app.services.errors import ValidationError
@@ -386,7 +386,7 @@ class SQLiteOrdersRepository(Base):
                     o.title,
                     o.created_at.isoformat(),
                     o.updated_at.isoformat(),
-                    o.expires_at.isoformat(),
+                    (o.expires_at or o.created_at).isoformat(),
                 ),
             )
             await self.c.executemany(
@@ -404,20 +404,19 @@ class SQLiteOrdersRepository(Base):
         return await self._make(r) if r else None
 
     async def get_active(self, id):
-        r = await self.one(
-            "SELECT * FROM orders WHERE id=? AND expires_at>?",
-            (str(to_object_id(id)), datetime.now(UTC).isoformat()),
-        )
-        return await self._make(r) if r else None
+        return await self.get(id)
 
-    async def list_active(self, page=1, size=24):
+    async def list(self, page=1, size=24):
         return [
             await self._make(r)
             for r in await self.all(
-                "SELECT * FROM orders WHERE expires_at>? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (datetime.now(UTC).isoformat(), size, (max(page, 1) - 1) * size),
+                "SELECT * FROM orders ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (size, (max(page, 1) - 1) * size),
             )
         ]
+
+    async def list_active(self, page=1, size=24):
+        return await self.list(page, size)
 
     async def update(self, o):
         async with self.db.transaction():
@@ -438,36 +437,26 @@ class SQLiteOrdersRepository(Base):
         await self.c.execute("DELETE FROM order_items WHERE order_id=?", (id,))
 
     async def delete(self, id):
-        r = await self.c.execute(
-            "DELETE FROM orders WHERE id=? AND expires_at>?", (id, datetime.now(UTC).isoformat())
-        )
+        r = await self.c.execute("DELETE FROM orders WHERE id=?", (id,))
         await self.db.commit()
         return r
 
     async def cleanup_expired(self):
-        r = await self.c.execute(
-            "DELETE FROM orders WHERE expires_at<=?", (datetime.now(UTC).isoformat(),)
-        )
-        await self.db.commit()
-        return r.rowcount
+        return 0
 
     async def count_active(self):
-        return (
-            await self.one(
-                "SELECT count(*) n FROM orders WHERE expires_at>?", (datetime.now(UTC).isoformat(),)
-            )
-        )["n"]
+        return (await self.one("SELECT count(*) n FROM orders"))["n"]
 
     async def active_product_references(self, p):
         return (
             await self.one(
-                "SELECT count(*) n FROM order_items i JOIN orders o ON o.id=i.order_id WHERE i.product_id=? AND o.expires_at>?",
-                (p, datetime.now(UTC).isoformat()),
+                "SELECT count(*) n FROM order_items WHERE product_id=?",
+                (p,),
             )
         )["n"]
 
     async def recent(self, limit=6):
-        return await self.list_active(1, limit)
+        return await self.list(1, limit)
 
 
 class SQLiteOrphansRepository(Base):

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MIME_TALBACKUP = "application/vnd.talabiytak.backup"
 
 
 @dataclass
@@ -50,6 +51,22 @@ class DesktopExportManager:
                 : -self.max_exports
             ]:
                 self._remove_locked(old.token)
+        return exp
+
+    def register_existing_file(
+        self, path: Path, suggested_filename: str, mime_type: str
+    ) -> DesktopExport:
+        self.cleanup_expired()
+        token = secrets.token_urlsafe(32)
+        exp = DesktopExport(
+            token,
+            Path(path),
+            os.path.basename(suggested_filename) or "backup.talbackup",
+            mime_type,
+            time.time(),
+        )
+        with self._lock:
+            self._exports[token] = exp
         return exp
 
     def get(self, token: str) -> DesktopExport | None:
@@ -116,8 +133,66 @@ class DesktopFileDialogBridge:
         self._last_folder = str(target.parent)
         return {"ok": True, "path": str(target), "filename": target.name}
 
+    def save_backup_file(self, export_token):
+        exp = self.manager.get(export_token)
+        if exp is None:
+            return {"ok": False, "message": "انتهت صلاحية الملف المؤقت."}
+        path = self._choose_backup_path(exp.suggested_filename)
+        if not path:
+            return {"ok": False, "cancelled": True}
+        target = Path(path).with_suffix(".talbackup")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f".{target.name}.{secrets.token_hex(8)}.tmp")
+        try:
+            shutil.copyfile(exp.temporary_path, tmp)
+            os.replace(tmp, target)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
+        self.manager.consume_after_success(export_token)
+        self._last_folder = str(target.parent)
+        return {"ok": True, "path": str(target), "filename": target.name}
+
+    def choose_backup_file(self):
+        if self.window_provider:
+            path = self.window_provider("*.talbackup")
+        else:
+            import webview
+
+            windows = getattr(webview, "windows", [])
+            window = windows[0] if windows else None
+            if not window:
+                return {"ok": False, "cancelled": True}
+            result = window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=("Talabiytak Backup (*.talbackup)",),
+            )
+            path = result[0] if isinstance(result, (list, tuple)) and result else result
+        return {"ok": True, "path": str(path)} if path else {"ok": False, "cancelled": True}
+
+    def request_restart(self):
+        self.restart_requested = True
+        return {"ok": True}
+
     def open_saved_folder(self, path):
         return {"ok": True}
+
+    def _choose_backup_path(self, suggested):
+        if self.window_provider:
+            return self.window_provider(suggested)
+        import webview
+
+        windows = getattr(webview, "windows", [])
+        window = windows[0] if windows else None
+        if not window:
+            return None
+        result = window.create_file_dialog(
+            webview.SAVE_DIALOG,
+            save_filename=suggested,
+            file_types=("Talabiytak Backup (*.talbackup)",),
+        )
+        return result[0] if isinstance(result, (list, tuple)) else result
 
     def _choose_path(self, suggested):
         if self.window_provider:

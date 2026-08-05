@@ -21,6 +21,7 @@
       <a class="nav-link{% if path.startswith('/products') %} nav-link-active{% endif %}" href="/products"{% if path.startswith('/products') %} aria-current="page"{% endif %}>المنتجات</a>
       <a class="nav-link{% if path.startswith('/orders') %} nav-link-active{% endif %}" href="/orders"{% if path.startswith('/orders') %} aria-current="page"{% endif %}>الطلبيات</a>
       <a class="nav-link{% if path.startswith('/pricing') %} nav-link-active{% endif %}" href="/pricing"{% if path.startswith('/pricing') %} aria-current="page"{% endif %}>حساب الأسعار</a>
+      {% if request.app.state.settings.desktop_mode %}<a class="nav-link{% if path.startswith('/backup') %} nav-link-active{% endif %}" href="/backup"{% if path.startswith('/backup') %} aria-current="page"{% endif %}>النسخ الاحتياطي</a>{% endif %}
       <form class="logout-form" action="/logout" method="post">
         <input type="hidden" name="csrf_token" value="{{ session.csrf }}">
         <button class="logout-button">تسجيل الخروج</button>
