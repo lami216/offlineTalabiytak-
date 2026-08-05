@@ -279,6 +279,25 @@ def _run_real_desktop_http_smoke_test(report_path=None):
                 if "الرئيسية" not in html:
                     raise RuntimeError("dashboard title was not present in HTML")
                 stage("http-dashboard", status=200)
+                for size in (32, 192):
+                    endpoint = f"/app-icon/{size}.png"
+                    with opener.open(f"http://127.0.0.1:{port}{endpoint}", timeout=10) as response:
+                        body = response.read()
+                        content_type = response.headers.get("Content-Type", "")
+                        if response.status != 200:
+                            raise RuntimeError(f"{endpoint} returned HTTP {response.status}")
+                        if content_type.split(";", 1)[0].strip().lower() != "image/png":
+                            raise RuntimeError(
+                                f"{endpoint} returned unexpected Content-Type {content_type!r}"
+                            )
+                        if not body:
+                            raise RuntimeError(f"{endpoint} returned an empty body")
+                    stage(
+                        f"http-app-icon-{size}",
+                        status=200,
+                        content_type=content_type,
+                        bytes=len(body),
+                    )
                 for endpoint in ("/products", "/imports", "/orders", "/pricing"):
                     with opener.open(f"http://127.0.0.1:{port}{endpoint}", timeout=10) as response:
                         response.read()

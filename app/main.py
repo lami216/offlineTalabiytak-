@@ -42,8 +42,14 @@ BASE = Path(__file__).parent
 VERSIONED_ASSETS = ("style.css", "orders.js", "app.js", "desktop_exports.js")
 
 
+def app_icon_source_path() -> Path:
+    from app.desktop_paths import resource_path
+
+    return resource_path("assets", "Talabiytak-icon.png")
+
+
 def icon_asset_version() -> str:
-    source = BASE.parent / "assets" / "Talabiytak-icon.png"
+    source = app_icon_source_path()
     return sha256(source.read_bytes()).hexdigest()[:12] if source.is_file() else "missing"
 
 
@@ -52,11 +58,11 @@ def render_app_icon(size: int) -> bytes:
 
     from PIL import Image
 
-    source = BASE.parent / "assets" / "Talabiytak-icon.png"
+    source = app_icon_source_path()
     if not source.is_file():
         raise FileNotFoundError(source)
     with Image.open(source) as image:
-        if image.mode not in {"RGB", "RGBA"}:
+        if image.mode != "RGBA":
             image = image.convert("RGBA")
         else:
             image = image.copy()
@@ -232,7 +238,8 @@ def create_app(
             raise HTTPException(404)
         try:
             data = render_app_icon(size)
-        except Exception as exc:
+        except FileNotFoundError as exc:
+            logging.getLogger(__name__).error("Application icon source is missing: %s", exc)
             raise HTTPException(404) from exc
         return Response(
             data,
