@@ -6,6 +6,7 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app.dependencies import csrf_ok, require_admin, session_data
+from app.services.desktop_exports import MIME_XLSX
 from app.services.errors import AppError, ValidationError
 
 router = APIRouter()
@@ -60,6 +61,9 @@ async def pricing_transform(
             source, rmb_rate, shipping_cost_per_cbm, filename=file.filename
         )
         download = safe_download_name(file.filename)
+        if request.app.state.settings.desktop_mode:
+            export = request.app.state.desktop_exports.register(transformed, download, MIME_XLSX)
+            return {"ok": True, "export_token": export.token, "suggested_filename": download}
         ascii_name = "calculated.xlsx"
         disposition = f"attachment; filename={ascii_name}; filename*=UTF-8''{quote(download)}"
         return Response(

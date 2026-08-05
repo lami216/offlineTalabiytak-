@@ -215,8 +215,8 @@ async def save_image(
         return JSONResponse({"ok": False, "message": str(exc)}, 400)
 
 
-@router.post("/imports/images/{image_id}/ignore")
-async def ignore_image(
+@router.post("/imports/images/{image_id}/delete")
+async def delete_image(
     image_id: str,
     request: Request,
     csrf_token: str = Form(...),
@@ -227,7 +227,7 @@ async def ignore_image(
         return result
     check(request, csrf_token)
     try:
-        image = await request.app.state.imports.ignore_image(image_id)
+        image = await request.app.state.imports.delete_imported_image(image_id)
     except ValidationError:
         image = None
     return RedirectResponse(
@@ -359,3 +359,23 @@ async def product_delete(
         except ValidationError:
             pass
     return RedirectResponse("/products", 303)
+
+
+@router.post("/imports/images/{image_id}/ignore")
+async def legacy_ignore_image(
+    image_id: str,
+    request: Request,
+    csrf_token: str = Form(...),
+    return_status: str = Form("all"),
+    return_page: str = Form("1"),
+):
+    if isinstance(result := guard(request), RedirectResponse):
+        return result
+    check(request, csrf_token)
+    image = await request.app.state.imports.ignore_image(image_id)
+    return RedirectResponse(
+        await preserved_batch_url(request, image.import_id, return_status, return_page)
+        if image
+        else "/imports",
+        303,
+    )

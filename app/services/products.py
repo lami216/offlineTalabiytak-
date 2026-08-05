@@ -101,7 +101,7 @@ class ProductService:
         try:
             await self.storage.delete(file_id)
         except Exception as exc:
-            log.exception("ImageKit rollback failed", extra={"file_id": file_id})
+            log.exception("Storage rollback failed", extra={"file_id": file_id})
             await self.orphans.record(file_id, f"{reason}: {exc}")
 
     async def search(self, query, page=1, size=24):

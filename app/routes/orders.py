@@ -5,8 +5,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.dependencies import csrf_ok, require_admin, session_data
+from app.services.desktop_exports import MIME_XLSX
 from app.services.errors import AppError, ValidationError
 from app.services.excel_export import safe_excel_filename
+from app.services.media_urls import asset_delivery_url
 
 router = APIRouter(prefix="/orders")
 
@@ -65,7 +67,8 @@ async def order_create(request: Request):
         order = await request.app.state.orders.create(title, ids, quantities)
     except AppError as exc:
         return render(request, "order_form.html", 400, order=None, error=str(exc))
-    return RedirectResponse(f"/orders/{order.id}", 303)
+    suffix = "?save_excel=1" if request.app.state.settings.desktop_mode else ""
+    return RedirectResponse(f"/orders/{order.id}{suffix}", 303)
 
 
 @router.get("/product-search")
@@ -79,9 +82,7 @@ async def product_search(request: Request, q: str = "", page: int = 1):
                 {
                     "id": p.id,
                     "name": p.name,
-                    "image_url": request.app.state.settings.imagekit_delivery_url(
-                        p.primary_image.file_path
-                    ),
+                    "image_url": asset_delivery_url(request.app.state.settings, p.primary_image),
                 }
                 for p in products
             ],
@@ -98,7 +99,7 @@ async def active_or_error(request, order_id):
 
 
 @router.get("/{order_id}", response_class=HTMLResponse)
-async def order_detail(order_id: str, request: Request):
+async def order_detail(order_id: str, request: Request, save_excel: int = 0):
     if isinstance(result := guard(request), RedirectResponse):
         return result
     order = await active_or_error(request, order_id)
@@ -110,7 +111,9 @@ async def order_detail(order_id: str, request: Request):
         item.product_id: await request.app.state.products.get(item.product_id)
         for item in order.items
     }
-    return render(request, "order_detail.html", order=order, products=products)
+    return render(
+        request, "order_detail.html", order=order, products=products, save_excel=save_excel
+    )
 
 
 @router.get("/{order_id}/edit", response_class=HTMLResponse)
@@ -161,6 +164,25 @@ async def order_delete(order_id: str, request: Request):
     return RedirectResponse("/orders", 303)
 
 
+@router.post("/{order_id}/prepare-export")
+async def prepare_order_export(order_id: str, request: Request):
+    if isinstance(result := guard(request), RedirectResponse):
+        return result
+    form = await request.form()
+    check(request, form.get("csrf_token"))
+    order = await active_or_error(request, order_id)
+    if not order:
+        return JSONResponse({"ok": False, "message": "انتهت صلاحية هذه الطلبية أو تم حذفها."}, 404)
+    data = await request.app.state.excel_export.build(order)
+    filename = safe_excel_filename(order.title)
+    if request.app.state.settings.desktop_mode:
+        export = request.app.state.desktop_exports.register(data, filename, MIME_XLSX)
+        return JSONResponse(
+            {"ok": True, "export_token": export.token, "suggested_filename": filename}
+        )
+    return JSONResponse({"ok": True, "download_url": f"/orders/{order_id}/download"})
+
+
 @router.get("/{order_id}/download")
 async def order_download(order_id: str, request: Request):
     if isinstance(result := guard(request), RedirectResponse):
@@ -169,6 +191,14 @@ async def order_download(order_id: str, request: Request):
     if not order:
         return render(
             request, "error.html", 404, code=404, message="انتهت صلاحية هذه الطلبية أو تم حذفها."
+        )
+    if request.app.state.settings.desktop_mode:
+        return render(
+            request,
+            "error.html",
+            400,
+            code=400,
+            message="استخدم زر حفظ ملف Excel داخل التطبيق.",
         )
     data = await request.app.state.excel_export.build(order)
     filename = safe_excel_filename(order.title)
