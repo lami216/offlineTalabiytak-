@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from app.models import Order, OrderItem, now
 from app.services.errors import ValidationError
 from app.utils.objectid import new_id, to_object_id
@@ -51,12 +49,12 @@ class OrderService:
             await self._items(product_ids, quantities),
             created,
             created,
-            created + timedelta(days=self.settings.order_retention_days),
+            created,
         )
         return await self.orders.create(order)
 
     async def update(self, order_id, title, product_ids, quantities):
-        order = await self.get_active(order_id)
+        order = await self.get(order_id)
         order.title, order.items, order.updated_at = (
             self._title(title),
             await self._items(product_ids, quantities),
@@ -64,14 +62,22 @@ class OrderService:
         )
         return await self.orders.update(order)
 
-    async def get_active(self, order_id):
-        order = await self.orders.get_active(order_id)
+    async def get(self, order_id):
+        getter = getattr(self.orders, "get", self.orders.get_active)
+        order = await getter(order_id)
         if not order:
-            raise ValidationError("انتهت صلاحية هذه الطلبية أو تم حذفها.")
+            raise ValidationError("الطلبية غير موجودة أو تم حذفها.")
         return order
 
+    async def get_active(self, order_id):
+        return await self.get(order_id)
+
+    async def list(self, page=1, size=24):
+        lister = getattr(self.orders, "list", self.orders.list_active)
+        return await lister(page, size)
+
     async def list_active(self, page=1, size=24):
-        return await self.orders.list_active(page, size)
+        return await self.list(page, size)
 
     async def delete(self, order_id):
         await self.get_active(order_id)

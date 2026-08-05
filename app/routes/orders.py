@@ -105,7 +105,7 @@ async def order_detail(order_id: str, request: Request, save_excel: int = 0):
     order = await active_or_error(request, order_id)
     if not order:
         return render(
-            request, "error.html", 404, code=404, message="انتهت صلاحية هذه الطلبية أو تم حذفها."
+            request, "error.html", 404, code=404, message="الطلبية غير موجودة أو تم حذفها."
         )
     products = {
         item.product_id: await request.app.state.products.get(item.product_id)
@@ -124,9 +124,7 @@ async def order_edit(order_id: str, request: Request):
     return (
         render(request, "order_form.html", order=order)
         if order
-        else render(
-            request, "error.html", 404, code=404, message="انتهت صلاحية هذه الطلبية أو تم حذفها."
-        )
+        else render(request, "error.html", 404, code=404, message="الطلبية غير موجودة أو تم حذفها.")
     )
 
 
@@ -172,7 +170,7 @@ async def prepare_order_export(order_id: str, request: Request):
     check(request, form.get("csrf_token"))
     order = await active_or_error(request, order_id)
     if not order:
-        return JSONResponse({"ok": False, "message": "انتهت صلاحية هذه الطلبية أو تم حذفها."}, 404)
+        return JSONResponse({"ok": False, "message": "الطلبية غير موجودة أو تم حذفها."}, 404)
     data = await request.app.state.excel_export.build(order)
     filename = safe_excel_filename(order.title)
     if request.app.state.settings.desktop_mode:
@@ -190,7 +188,7 @@ async def order_download(order_id: str, request: Request):
     order = await active_or_error(request, order_id)
     if not order:
         return render(
-            request, "error.html", 404, code=404, message="انتهت صلاحية هذه الطلبية أو تم حذفها."
+            request, "error.html", 404, code=404, message="الطلبية غير موجودة أو تم حذفها."
         )
     if request.app.state.settings.desktop_mode:
         return render(

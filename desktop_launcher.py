@@ -22,6 +22,7 @@ from filelock import FileLock, Timeout
 from app.config import Settings
 from app.desktop_config import DISPLAY_NAME, VERSION
 from app.desktop_paths import DesktopPaths
+from app.services.backups import apply_pending_restore
 
 
 def reserved_loopback_socket():
@@ -298,7 +299,7 @@ def _run_real_desktop_http_smoke_test(report_path=None):
                         content_type=content_type,
                         bytes=len(body),
                     )
-                for endpoint in ("/products", "/imports", "/orders", "/pricing"):
+                for endpoint in ("/products", "/imports", "/orders", "/pricing", "/backup"):
                     with opener.open(f"http://127.0.0.1:{port}{endpoint}", timeout=10) as response:
                         response.read()
                         if response.status >= 500:
@@ -359,6 +360,7 @@ def main():
         webview.start()
         return 2
     try:
+        apply_pending_restore(paths)
         secret = (
             paths.secret.read_text(encoding="ascii")
             if paths.secret.exists()
@@ -415,8 +417,17 @@ def main():
             min_size=(900, 600),
         )
         webview.start(debug=False)
+        restart_requested = getattr(bridge, "restart_requested", False)
         server.should_exit = True
         thread.join(timeout=10)
+        if restart_requested:
+            logging.info("Restart requested after restore staging")
+            try:
+                import subprocess
+
+                subprocess.Popen([sys.executable], close_fds=True)
+            except Exception:
+                logging.exception("automatic restart failed")
         if thread.is_alive():
             logging.warning("local server did not stop within timeout")
         logging.info("Talabiytak %s stopped", VERSION)

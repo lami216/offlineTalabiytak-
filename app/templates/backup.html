@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% block content %}
+<div class="title-row"><h1>النسخ الاحتياطي والاستعادة</h1></div>
+<div class="backup-grid">
+  <section class="card backup-card"><h2>إنشاء نسخة احتياطية</h2><p>تحفظ المنتجات والصور ودفعات الاستيراد والطلبيات في ملف واحد.</p><p class="backup-warning">النسخة الاحتياطية غير مشفرة. احتفظ بها في مكان آمن.</p><button class="button" data-backup-create data-csrf="{{ session.csrf }}">إنشاء نسخة احتياطية</button></section>
+  <section class="card backup-card"><h2>استعادة نسخة احتياطية</h2><p>تستبدل الاستعادة البيانات الحالية بالبيانات الموجودة في النسخة الاحتياطية.</p><p class="backup-danger">سيتم إنشاء نسخة أمان من بياناتك الحالية قبل الاستعادة، ثم يعاد تشغيل التطبيق.</p><button class="danger" data-backup-restore data-csrf="{{ session.csrf }}">اختيار نسخة واستعادتها</button><div data-backup-summary></div></section>
+</div>
+<div class="order-notification" data-backup-notification role="alert" aria-live="assertive" hidden></div>
+<script src="{{ url_for('static',path='/backup.js') }}?v={{ asset_version('backup.js') }}" defer></script>
+{% endblock %}

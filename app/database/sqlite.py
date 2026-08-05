@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -67,6 +68,18 @@ class SQLiteDatabase:
     async def ping(self) -> bool:
         row = await (await self.connection.execute("SELECT 1")).fetchone()
         return bool(row and row[0] == 1)
+
+    async def backup_to(self, destination: Path) -> None:
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        await self.connection.commit()
+        source = sqlite3.connect(self.path)
+        target = sqlite3.connect(destination)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
 
     @asynccontextmanager
     async def transaction(self):
