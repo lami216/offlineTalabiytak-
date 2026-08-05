@@ -60,9 +60,9 @@ jobs:
         shell: pwsh
         run: |
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -like 'v*') {
-            powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipChecks -Release
+            & ./scripts/build-installer.ps1 -SkipChecks -Release
           } else {
-            powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipChecks
+            & ./scripts/build-installer.ps1 -SkipChecks
           }
       - name: Silent install, installed smoke, and uninstall verification
         shell: pwsh
