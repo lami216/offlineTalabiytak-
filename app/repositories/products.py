@@ -85,6 +85,11 @@ class ProductsRepository:
             query["_id"] = {"$ne": oid(exclude_id)}
         return await self.collection.count_documents(query)
 
+    async def list_by_file_id(self, file_id):
+        cursor = self.collection.find({"primary_image.file_id": file_id}).sort("created_at", 1)
+        docs = await cursor.to_list(length=None)
+        return [product_from_doc(d) for d in docs]
+
     async def recent(self, limit=6):
         cursor = self.collection.find({}).sort("created_at", -1).limit(limit)
         docs = await cursor.to_list(length=None)

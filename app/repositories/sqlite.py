@@ -343,6 +343,15 @@ class SQLiteProductsRepository(Base):
             )
         )["n"]
 
+    async def list_by_file_id(self, file_id):
+        return [
+            product(r)
+            for r in await self.all(
+                "SELECT * FROM products WHERE json_extract(primary_image,'$.file_id')=? ORDER BY created_at ASC",
+                (file_id,),
+            )
+        ]
+
     async def recent(self, limit=6):
         return [
             product(r)
