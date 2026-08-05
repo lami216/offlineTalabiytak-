@@ -22,6 +22,7 @@ def test_real_desktop_http_smoke_exercises_dashboard_with_lifespan_on(tmp_path):
     assert payload["success"] is True
     stages = {entry["stage"] for entry in payload["stages"]}
     assert "http-dashboard" in stages
+    assert {"http-app-icon-32", "http-app-icon-192"} <= stages
     assert {"http-products", "http-imports", "http-orders", "http-pricing"} <= stages
     assert "sqlite-closed" in stages
 
