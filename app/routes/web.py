@@ -47,6 +47,15 @@ async def preserved_batch_url(request: Request, import_id: str, status: str, pag
     return batch_url(import_id, status, page_number)
 
 
+def product_payload(product):
+    return {
+        "id": product.id,
+        "name": product.name,
+        "edit_url": f"/products/{product.id}/edit",
+        "image_url": product.image_url,
+    }
+
+
 def render(request, name, status_code=200, **context):
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -212,6 +221,7 @@ async def save_image(
                     "ok": True,
                     "message": "تم حفظ المنتج",
                     "product_id": product.id,
+                    "product": product_payload(product),
                     "new_status": "saved_as_product",
                     "redirect_url": redirect_url,
                 }
@@ -317,7 +327,12 @@ async def product_edit(product_id: str, request: Request):
     except ValidationError:
         product = None
     return (
-        render(request, "product_form.html", product=product)
+        render(
+            request,
+            "product_form.html",
+            product=product,
+            shared_products=await request.app.state.products.shared_image_products(product.id),
+        )
         if product
         else render(request, "error.html", status_code=404, code=404, message="المنتج غير موجود")
     )
@@ -352,6 +367,31 @@ async def product_update(
     finally:
         if image:
             await image.close()
+
+
+@router.post("/products/{product_id}/create-with-same-image")
+async def product_create_with_same_image(
+    product_id: str, request: Request, name: str = Form(...), csrf_token: str = Form(...)
+):
+    if isinstance(result := guard(request), RedirectResponse):
+        return result
+    is_ajax = request.headers.get("x-requested-with") == "fetch"
+    try:
+        check(request, csrf_token)
+        product = await request.app.state.products.create_with_existing_image(product_id, name)
+    except AppError as exc:
+        if is_ajax:
+            return JSONResponse({"ok": False, "message": str(exc)}, 400)
+        return RedirectResponse(f"/products/{product_id}/edit#shared-image-products", 303)
+    if is_ajax:
+        return JSONResponse(
+            {
+                "ok": True,
+                "message": "تم إنشاء المنتج بنفس الصورة.",
+                "product": product_payload(product),
+            }
+        )
+    return RedirectResponse(f"/products/{product_id}/edit#shared-image-products", 303)
 
 
 @router.post("/products/{product_id}/delete")

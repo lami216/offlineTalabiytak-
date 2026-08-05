@@ -1,4 +1,5 @@
 import logging
+from dataclasses import replace as dataclass_replace
 
 from app.models import ImageAsset, ImageStatus, Product
 from app.services.arabic import ArabicNormalizationService
@@ -51,6 +52,32 @@ class ProductService:
         )
         return product
 
+    def _copy_asset(self, asset: ImageAsset) -> ImageAsset:
+        return dataclass_replace(asset)
+
+    async def create_with_existing_image(self, source_product_id: str, name: str):
+        name = self._name(name)
+        source_product = await self._required(source_product_id)
+        if not source_product.primary_image or not source_product.primary_image.file_id:
+            raise ValidationError("الصورة غير متاحة")
+        product = Product(
+            new_id(),
+            name,
+            self.normalizer.normalize(name),
+            self._copy_asset(source_product.primary_image),
+            {"source": "shared_product_image", "source_product_id": source_product.id},
+        )
+        return await self.products.create(product)
+
+    async def list_by_file_id(self, file_id: str):
+        if not file_id:
+            return []
+        return await self.products.list_by_file_id(file_id)
+
+    async def shared_image_products(self, product_id: str):
+        product = await self._required(product_id)
+        return await self.list_by_file_id(product.primary_image.file_id)
+
     async def create_manual(self, name, processed):
         name = self._name(name)
         reusable = await self.products.find_by_hash(processed.sha256)
@@ -64,7 +91,7 @@ class ProductService:
                 new_id(),
                 name,
                 self.normalizer.normalize(name),
-                asset,
+                self._copy_asset(asset),
                 {"source": "manual"},
             )
             return await self.products.create(product)
@@ -153,7 +180,7 @@ class ProductService:
         if not product:
             return
         if self.orders and await self.orders.active_product_references(product_id):
-            raise ValidationError("لا يمكن حذف المنتج لأنه مستخدم في طلبية ما زالت فعالة.")
+            raise ValidationError("لا يمكن حذف المنتج لأنه مستخدم في طلبية.")
         await self.products.delete(product_id)
         if not await self._referenced(product.primary_image.file_id, product_id):
             await self.storage.delete(product.primary_image.file_id)

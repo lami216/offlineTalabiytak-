@@ -39,7 +39,7 @@
 
 <div class="grid">
 {% for i in images %}
-  <article class="card image-card">
+  <article class="card image-card" data-current-status="{{ status }}">
     {% if i.image_asset %}<img src="{{ asset_delivery_url(i.image_asset) }}" alt="الصورة {{ i.sequence_number }}">
     {% else %}<div class="missing">لا توجد معاينة</div>{% endif %}
     <small>رقم {{ i.sequence_number }} — {{ i.status }}</small>

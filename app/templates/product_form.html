@@ -1,1 +1,41 @@
-{% extends 'base.html' %}{% block content %}<h1>{{ 'تعديل المنتج' if product else 'إضافة منتج' }}</h1><section class="card form-card">{% if product %}<img src="{{ asset_delivery_url(product.primary_image) }}" alt="{{ product.name }}">{% endif %}<form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ session.csrf }}"><label>اسم المنتج<input name="name" value="{{ product.name if product else '' }}" required maxlength="300"></label><label>{{ 'استبدال الصورة (اختياري)' if product else 'صورة المنتج' }}<input type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif" {{ '' if product else 'required' }}></label><button>حفظ</button></form>{% if product %}<form method="post" action="/products/{{ product.id }}/delete" data-confirm="هل أنت متأكد من حذف المنتج؟"><input type="hidden" name="csrf_token" value="{{ session.csrf }}"><input type="hidden" name="confirm" value="delete"><button class="danger">حذف المنتج</button></form>{% endif %}</section>{% endblock %}
+{% extends 'base.html' %}
+{% block content %}
+<h1>{{ 'تعديل المنتج' if product else 'إضافة منتج' }}</h1>
+<section class="card form-card">
+  {% if product %}<img src="{{ asset_delivery_url(product.primary_image) }}" alt="{{ product.name }}">{% endif %}
+  <form method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf }}">
+    <label>اسم المنتج<input name="name" value="{{ product.name if product else '' }}" required maxlength="300"></label>
+    <label>{{ 'استبدال الصورة (اختياري)' if product else 'صورة المنتج' }}<input type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif" {{ '' if product else 'required' }}></label>
+    <button>حفظ</button>
+  </form>
+  {% if product %}
+  <form method="post" action="/products/{{ product.id }}/delete" data-confirm="هل أنت متأكد من حذف المنتج؟">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf }}">
+    <input type="hidden" name="confirm" value="delete">
+    <button class="danger">حذف المنتج</button>
+  </form>
+  {% endif %}
+</section>
+{% if product %}
+<section class="card shared-image-products-card" id="shared-image-products">
+  <h2>إضافة منتج آخر بنفس الصورة</h2>
+  <p>أنشئ منتجًا مستقلًا يستخدم الصورة نفسها دون نسخها أو رفعها مرة أخرى.</p>
+  <form class="shared-image-product-form" method="post" action="/products/{{ product.id }}/create-with-same-image">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf }}">
+    <label>اسم المنتج الجديد<input name="name" required maxlength="300" autocomplete="off"></label>
+    <button>إنشاء منتج بنفس الصورة</button>
+    <p class="shared-product-message" role="status"></p>
+  </form>
+  <h3>المنتجات التي تستخدم هذه الصورة:</h3>
+  <ul class="shared-products-list">
+    {% for item in shared_products or [] %}
+    <li class="shared-product-row" data-product-id="{{ item.id }}">
+      <span>{{ item.name }}{% if item.id == product.id %} — المنتج الحالي{% endif %}</span>
+      {% if item.id != product.id %}<a class="button secondary compact" href="/products/{{ item.id }}/edit">تعديل</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}
