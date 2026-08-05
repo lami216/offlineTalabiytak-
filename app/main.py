@@ -7,12 +7,13 @@ from hashlib import sha256
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import Settings, get_settings
+from app.desktop_config import DISPLAY_NAME
 from app.repositories import (
     ImportedImagesRepository,
     ImportsRepository,
@@ -39,6 +40,32 @@ from app.services.products import ProductService
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 BASE = Path(__file__).parent
 VERSIONED_ASSETS = ("style.css", "orders.js", "app.js", "desktop_exports.js")
+
+
+def icon_asset_version() -> str:
+    source = BASE.parent / "assets" / "Talabiytak-icon.png"
+    return sha256(source.read_bytes()).hexdigest()[:12] if source.is_file() else "missing"
+
+
+def render_app_icon(size: int) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    source = BASE.parent / "assets" / "Talabiytak-icon.png"
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    with Image.open(source) as image:
+        if image.mode not in {"RGB", "RGBA"}:
+            image = image.convert("RGBA")
+        else:
+            image = image.copy()
+        image.thumbnail((size, size), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+        canvas.alpha_composite(image, ((size - image.width) // 2, (size - image.height) // 2))
+        output = BytesIO()
+        canvas.save(output, "PNG")
+        return output.getvalue()
 
 
 def _asset_version(path: Path) -> str:
@@ -188,6 +215,8 @@ def create_app(
         static_base = BASE / "static"
     app.state.templates = Jinja2Templates(directory=template_base)
     app.state.templates.env.globals["asset_version"] = asset_version
+    app.state.templates.env.globals["icon_asset_version"] = icon_asset_version
+    app.state.templates.env.globals["app_display_name"] = DISPLAY_NAME
     app.state.templates.env.globals["asset_delivery_url"] = lambda asset: asset_delivery_url(
         settings, asset
     )
@@ -196,6 +225,21 @@ def create_app(
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_host_list)
     app.mount("/static", StaticFiles(directory=static_base), name="static")
+
+    @app.get("/app-icon/{size}.png")
+    async def app_icon(size: int):
+        if size not in {32, 192}:
+            raise HTTPException(404)
+        try:
+            data = render_app_icon(size)
+        except Exception as exc:
+            raise HTTPException(404) from exc
+        return Response(
+            data,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
     app.include_router(router)
     app.include_router(orders_router)
     app.include_router(pricing_router)

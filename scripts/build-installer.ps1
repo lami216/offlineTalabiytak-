@@ -6,6 +6,9 @@ param(
 $ErrorActionPreference='Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $root
+if (-not (Test-Path "assets/Talabiytak-icon.png")) { throw "Missing assets/Talabiytak-icon.png" }
+python scripts/build_icon.py
+if (-not (Test-Path "build-assets/Talabiytak.ico")) { throw "Icon build failed: build-assets/Talabiytak.ico missing" }
 
 $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python) { throw 'Python 3.12 is required on the build machine.' }
@@ -33,12 +36,12 @@ if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notm
   throw 'Invalid WebView2 Runtime Authenticode signature.'
 }
 
-$metadata = python -c "from app.desktop_config import APP_NAME, PUBLISHER, VERSION; print(APP_NAME); print(PUBLISHER); print(VERSION)"
+$metadata = python -c "from app.desktop_config import DISPLAY_NAME, PUBLISHER, VERSION; print(DISPLAY_NAME); print(PUBLISHER); print(VERSION)"
 $appName = $metadata[0]
 $publisher = $metadata[1]
 $appVersion = $metadata[2]
 if ($Release -and $publisher -eq 'PLACEHOLDER_PUBLISHER') { throw 'Release build requires a real publisher in app/desktop_config.py.' }
-if ($Release -and -not (Test-Path 'assets/Talabiytak.ico')) { throw 'Release build requires assets/Talabiytak.ico.' }
+if ($Release -and -not (Test-Path 'build-assets/Talabiytak.ico')) { throw 'Release build requires build-assets/Talabiytak.ico.' }
 if ($Release -and $env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$appVersion") { throw "Release tag $($env:GITHUB_REF_NAME) must match app/desktop_config.py VERSION v$appVersion." }
 
 $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue

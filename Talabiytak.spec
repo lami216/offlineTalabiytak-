@@ -16,7 +16,7 @@ datas = [
 datas.extend(collect_data_files("webview"))
 datas.extend(collect_data_files("openpyxl"))
 
-icon_path = "assets/Talabiytak.ico" if Path("assets/Talabiytak.ico").exists() else None
+icon_path = "build-assets/Talabiytak.ico"
 
 a = Analysis(
     ["desktop_launcher.py"],

@@ -64,20 +64,21 @@
       const image = document.createElement("img");
       image.className = "product-search-image";
       image.alt = "";
-      const missing = document.createElement("div");
-      missing.className = "missing product-search-missing";
-      missing.textContent = "لا توجد معاينة";
-      missing.hidden = true;
+      let imageRetried = false;
       image.addEventListener("error", () => {
+        if (product.image_url && !imageRetried) {
+          imageRetried = true;
+          setTimeout(() => {
+            const separator = product.image_url.includes("?") ? "&" : "?";
+            image.src = `${product.image_url}${separator}retry=1`;
+          }, 200);
+          return;
+        }
         image.hidden = true;
-        missing.hidden = false;
       });
       if (product.image_url) image.src = product.image_url;
-      else {
-        image.hidden = true;
-        missing.hidden = false;
-      }
-      preview.append(image, missing);
+      else image.hidden = true;
+      preview.append(image);
       const name = document.createElement("strong");
       name.className = "product-search-name";
       name.textContent = product.name;

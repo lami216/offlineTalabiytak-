@@ -2,17 +2,26 @@
   let apiReady = false;
   let retryToken = null;
   let busy = false;
+  let exportNotificationTimer;
   const notifyBox = () => document.querySelector("[data-export-notification]") || document.querySelector("[data-order-notification]");
-  const showExportNotification = (message, type = "info") => {
+  const showExportNotification = (message, type = "info", duration = 3000) => {
     const box = notifyBox();
     if (!box) return;
+    clearTimeout(exportNotificationTimer);
     box.textContent = message;
     box.dataset.type = type;
     box.hidden = false;
+    if (duration > 0) {
+      exportNotificationTimer = setTimeout(() => {
+        box.hidden = true;
+        box.textContent = "";
+        box.removeAttribute("data-type");
+      }, duration);
+    }
   };
   const saveExport = async (exportToken) => {
     if (!apiReady || !window.pywebview || !window.pywebview.api) {
-      showExportNotification("واجهة الحفظ غير جاهزة بعد.", "error");
+      showExportNotification("واجهة الحفظ غير جاهزة بعد.", "error", 5000);
       return { ok: false };
     }
     return window.pywebview.api.save_generated_file(exportToken);
@@ -20,17 +29,17 @@
   const handleExportResult = (result) => {
     if (result && result.ok) {
       retryToken = null;
-      showExportNotification(`تم حفظ ملف Excel بنجاح. ${result.path || result.filename || ""}`, "success");
+      showExportNotification(`تم حفظ ملف Excel بنجاح. ${result.path || result.filename || ""}`, "success", 2500);
     } else if (result && result.cancelled) {
-      showExportNotification("تم إلغاء الحفظ. يمكنك إعادة محاولة الحفظ.", "info");
+      showExportNotification("تم إلغاء الحفظ. يمكنك إعادة محاولة الحفظ.", "info", 3000);
     } else {
-      showExportNotification("تعذر حفظ الملف.", "error");
+      showExportNotification("تعذر حفظ الملف.", "error", 5000);
     }
   };
   const setBusy = (button, value) => { busy = value; if (button) button.disabled = value; };
   const prepareOrderExport = async (orderId, csrfToken, button) => {
     if (busy) return;
-    setBusy(button, true); showExportNotification("جارٍ تجهيز الملف...", "info");
+    setBusy(button, true); showExportNotification("جارٍ تجهيز الملف...", "info", 0);
     try {
       const body = new URLSearchParams(); body.set("csrf_token", csrfToken);
       const response = await fetch(`/orders/${encodeURIComponent(orderId)}/prepare-export`, { method: "POST", body });
@@ -40,7 +49,7 @@
       const result = await saveExport(data.export_token);
       handleExportResult(result);
       if (!result || (!result.cancelled && !result.ok)) retryToken = null;
-    } catch (_) { showExportNotification("تعذر تجهيز الملف.", "error"); }
+    } catch (_) { showExportNotification("تعذر تجهيز الملف.", "error", 5000); }
     finally { setBusy(button, false); }
   };
   const retryExport = async () => { if (retryToken) handleExportResult(await saveExport(retryToken)); };
@@ -61,9 +70,9 @@
     const pricing = document.querySelector("[data-desktop-pricing-form]");
     if (pricing) pricing.addEventListener("submit", async (event) => {
       event.preventDefault(); if (busy) return;
-      const button = pricing.querySelector('button[type="submit"]'); setBusy(button, true); showExportNotification("جارٍ تجهيز الملف...", "info");
+      const button = pricing.querySelector('button[type="submit"]'); setBusy(button, true); showExportNotification("جارٍ تجهيز الملف...", "info", 0);
       try { const response = await fetch(pricing.action, { method: "POST", body: new FormData(pricing) }); const data = await response.json(); if (!response.ok || !data.ok) throw new Error(); retryToken = data.export_token; const result = await saveExport(data.export_token); handleExportResult(result); if (result && result.ok) pricing.querySelector('input[type="file"]').value = ""; }
-      catch (_) { showExportNotification("تعذر حفظ الملف.", "error"); }
+      catch (_) { showExportNotification("تعذر حفظ الملف.", "error", 5000); }
       finally { setBusy(button, false); }
     });
   });

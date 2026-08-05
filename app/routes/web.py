@@ -126,17 +126,25 @@ async def import_new(request: Request):
 
 @router.post("/imports/new")
 async def import_create(
-    request: Request, file: UploadFile = File(...), csrf_token: str = Form(...)
+    request: Request,
+    csrf_token: str = Form(...),
+    file: UploadFile | None = File(None),
+    images: list[UploadFile] = File(default=[]),
 ):
     if isinstance(result := guard(request), RedirectResponse):
         return result
     check(request, csrf_token)
     try:
-        item = await request.app.state.imports.import_upload(file.filename or "", file.file)
+        excel_source = (file.filename or "", file.file) if file and file.filename else None
+        image_sources = [(image.filename or "", image.file) for image in images if image.filename]
+        item = await request.app.state.imports.create_from_sources(excel_source, image_sources)
     except AppError as exc:
         return render(request, "import_new.html", status_code=400, error=str(exc))
     finally:
-        await file.close()
+        if file:
+            await file.close()
+        for image in images:
+            await image.close()
     return RedirectResponse(f"/imports/{item.id}", 303)
 
 

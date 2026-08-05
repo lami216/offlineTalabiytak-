@@ -62,3 +62,27 @@ document.addEventListener("submit", (event) => {
     submitImageAction(form);
   }
 });
+
+document.addEventListener("DOMContentLoaded", () => {
+  const input = document.querySelector("[data-direct-images-input]");
+  if (!input) return;
+  const summary = document.querySelector("[data-selected-images-summary]");
+  const list = document.querySelector("[data-selected-images-list]");
+  const maxBytes = 10 * 1024 * 1024;
+  const formatSize = (bytes) => `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+  input.addEventListener("change", () => {
+    const files = Array.from(input.files || []);
+    list.textContent = "";
+    summary.hidden = files.length === 0;
+    summary.textContent = files.length ? `تم اختيار ${files.length} صورة.` : "";
+    files.forEach((file) => {
+      const item = document.createElement("li");
+      item.textContent = `${file.name} — ${formatSize(file.size)}`;
+      if (file.size > maxBytes) {
+        item.className = "upload-warning";
+        item.textContent += " — تتجاوز الحد المسموح وهو 10 ميغابايت.";
+      }
+      list.append(item);
+    });
+  });
+});
