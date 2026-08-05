@@ -41,3 +41,58 @@ def test_icon_source_is_valid_square_png():
         assert image.format == "PNG"
         assert image.width == image.height
         assert image.width >= 512
+
+
+
+def test_arabic_desktop_metadata_json_round_trips_through_powershell():
+    import shutil
+    import subprocess
+
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if shell is None:
+        import pytest
+
+        pytest.skip("PowerShell is required to validate Windows metadata round-trip")
+
+    metadata_command = (
+        "import json; "
+        "from app.desktop_config import DISPLAY_NAME, PUBLISHER, VERSION; "
+        "print(json.dumps({"
+        "'display_name': DISPLAY_NAME, "
+        "'publisher': PUBLISHER, "
+        "'version': VERSION"
+        "}, ensure_ascii=True))"
+    )
+    ps_lines = [
+        "$ErrorActionPreference = 'Stop'",
+        f'$metadataJson = & python -c "{metadata_command}"',
+        "if ($LASTEXITCODE -ne 0) { throw 'metadata command failed' }",
+        "if ([string]::IsNullOrWhiteSpace($metadataJson)) { throw 'empty' }",
+        "if ($metadataJson -match 'طلبياتك') { throw 'not ASCII escaped' }",
+        r"if ($metadataJson -notmatch '\u0637\u0644') { throw 'no escapes' }",
+        "$metadata = $metadataJson | ConvertFrom-Json",
+        "if ($null -eq $metadata) { throw 'metadata is null' }",
+        "if ([string]$metadata.display_name -ne 'طلبياتك') { throw 'bad name' }",
+        '$defines = @("") + "/DAppName=$($metadata.display_name)"',
+        "if ($defines[1] -ne '/DAppName=طلبياتك') { throw 'bad define' }",
+        "Write-Output $metadata.display_name",
+    ]
+    result = subprocess.run(
+        [shell, "-NoProfile", "-Command", "\n".join(ps_lines)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "UnicodeEncodeError" not in result.stderr
+    assert "طلبياتك" in result.stdout
+
+
+def test_installer_script_preserves_arabic_metadata_and_utf8_build_report():
+    script = Path("scripts/build-installer.ps1").read_text(encoding="utf-8")
+    assert "ensure_ascii=True" in script
+    assert "ConvertFrom-Json" in script
+    assert 'if ($appName -ne "طلبياتك")' in script
+    assert '"/DAppName=$appName"' in script
+    build_report = "dist-installer/BUILD_REPORT.txt') -Encoding utf8"
+    assert build_report in script
