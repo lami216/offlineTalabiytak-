@@ -199,14 +199,19 @@ class SQLiteImagesRepository(Base):
 
     async def find_duplicate_by_hash(self, h, exclude_id=None):
         r = await self.one(
-            "SELECT * FROM imported_images WHERE hash=? AND image_asset IS NOT NULL AND status!='deleted' AND id!=? ORDER BY created_at LIMIT 1",
+            "SELECT * FROM imported_images WHERE hash=? AND image_asset IS NOT NULL AND status NOT IN ('deleted','ignored') AND id!=? ORDER BY created_at LIMIT 1",
             (h, exclude_id or ""),
         )
         return image(r) if r else None
 
     async def list_images(self, i, status="all", page=1, size=48):
-        where = "import_id=?" + (" AND status=?" if status != "all" else "")
-        args = [i] + ([status] if status != "all" else []) + [(max(page, 1) - 1) * size, size]
+        hidden = ("deleted", "ignored")
+        if status == "all":
+            where = "import_id=? AND status NOT IN (?,?)"
+            args = [i, *hidden, (max(page, 1) - 1) * size, size]
+        else:
+            where = "import_id=? AND status=?"
+            args = [i, status, (max(page, 1) - 1) * size, size]
         return [
             image(r)
             for r in await self.all(
@@ -219,10 +224,19 @@ class SQLiteImagesRepository(Base):
         return {
             r["status"]: r["n"]
             for r in await self.all(
-                "SELECT status,count(*) n FROM imported_images WHERE import_id=? GROUP BY status",
+                "SELECT status,count(*) n FROM imported_images WHERE import_id=? AND status NOT IN ('deleted','ignored') GROUP BY status",
                 (i,),
             )
         }
+
+    async def mark_deleted(self, id):
+        x = await self.get(id)
+        if x is None:
+            return None
+        x.status = "deleted"
+        x.image_asset = None
+        x.linked_product_id = None
+        return await self.update(x)
 
     async def count(self, status=None):
         return (
@@ -235,7 +249,7 @@ class SQLiteImagesRepository(Base):
     async def asset_references(self, f, exclude_id=None):
         return (
             await self.one(
-                "SELECT count(*) n FROM imported_images WHERE json_extract(image_asset,'$.file_id')=? AND status!='deleted' AND id!=?",
+                "SELECT count(*) n FROM imported_images WHERE json_extract(image_asset,'$.file_id')=? AND status NOT IN ('deleted','ignored') AND id!=?",
                 (f, exclude_id or ""),
             )
         )["n"]
@@ -251,7 +265,7 @@ class SQLiteImagesRepository(Base):
 
     async def find_asset_by_file_id(self, file_id):
         r = await self.one(
-            "SELECT image_asset FROM imported_images WHERE json_extract(image_asset,'$.file_id')=? AND image_asset IS NOT NULL AND status!='deleted' LIMIT 1",
+            "SELECT image_asset FROM imported_images WHERE json_extract(image_asset,'$.file_id')=? AND image_asset IS NOT NULL AND status NOT IN ('deleted','ignored') LIMIT 1",
             (file_id,),
         )
         return asset(r["image_asset"]) if r else None

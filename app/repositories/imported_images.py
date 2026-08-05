@@ -43,7 +43,7 @@ class ImportedImagesRepository:
         query = {
             "hash": image_hash,
             "image_asset.file_id": {"$ne": None},
-            "status": {"$ne": "deleted"},
+            "status": {"$nin": ["deleted", "ignored"]},
         }
         if exclude_id:
             query["_id"] = {"$ne": oid(exclude_id)}
@@ -82,6 +82,15 @@ class ImportedImagesRepository:
             await self.update(image)
         return image
 
+    async def mark_deleted(self, image_id):
+        image = await self.get(image_id)
+        if image:
+            image.status = "deleted"
+            image.image_asset = None
+            image.linked_product_id = None
+            await self.update(image)
+        return image
+
     async def link_product(self, image_id, product_id):
         image = await self.get(image_id)
         if image:
@@ -117,7 +126,7 @@ class ImportedImagesRepository:
         return await self.collection.count_documents({"status": status} if status else {})
 
     async def asset_references(self, file_id, exclude_id=None):
-        query = {"image_asset.file_id": file_id, "status": {"$ne": "deleted"}}
+        query = {"image_asset.file_id": file_id, "status": {"$nin": ["deleted", "ignored"]}}
         if exclude_id:
             query["_id"] = {"$ne": oid(exclude_id)}
         return await self.collection.count_documents(query)

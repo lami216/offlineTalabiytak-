@@ -6,7 +6,7 @@ from hashlib import sha256
 from pathlib import PurePosixPath
 
 from app.models import ImageAsset, ImageStatus, ImportedImage, ImportStatus
-from app.services.errors import ImageProcessingError, UnsafeWorkbookError
+from app.services.errors import ImageProcessingError, UnsafeWorkbookError, ValidationError
 from app.utils.objectid import new_id
 
 log = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ class ImportService:
         try:
             await self.storage.delete(file_id)
         except Exception as exc:
-            log.exception("ImageKit rollback failed", extra={"file_id": file_id})
+            log.exception("Storage rollback failed", extra={"file_id": file_id})
             await self.orphans.record(file_id, f"{reason}: {exc}")
 
     async def list_imports(self, limit=100):
@@ -187,6 +187,22 @@ class ImportService:
             await self.images.list_images(import_id, status, page),
             await self.images.status_counts(import_id),
         )
+
+    async def delete_imported_image(self, image_id):
+        image = await self.images.get(image_id)
+        if not image:
+            return None
+        if image.linked_product_id or image.status == ImageStatus.saved_as_product.value:
+            raise ValidationError("لا يمكن حذف هذه الصورة لأنها مرتبطة بمنتج محفوظ.")
+        asset = image.image_asset
+        remove_file = False
+        if asset:
+            image_refs = await self.images.asset_references(asset.file_id, exclude_id=image.id)
+            product_refs = await self.products.asset_references(asset.file_id)
+            remove_file = image_refs == 0 and product_refs == 0
+        if remove_file:
+            await self.storage.delete(asset.file_id)
+        return await self.images.mark_deleted(image.id)
 
     async def ignore_image(self, image_id):
         image = await self.images.get(image_id)

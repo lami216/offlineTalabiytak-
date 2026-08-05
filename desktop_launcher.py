@@ -384,9 +384,13 @@ def main():
             raise RuntimeError("local server did not start")
         import webview
 
+        from app.services.desktop_exports import DesktopFileDialogBridge
+
+        bridge = DesktopFileDialogBridge(app.state.desktop_exports)
         webview.create_window(
             DISPLAY_NAME,
             f"http://127.0.0.1:{port}/desktop-bootstrap?token={app.state.bootstrap_token}",
+            js_api=bridge,
             width=1280,
             height=800,
             min_size=(900, 600),

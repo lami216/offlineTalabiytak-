@@ -32,12 +32,13 @@ from app.services.excel_pricing import ExcelPricingService
 from app.services.image_processing import ImageProcessingService
 from app.services.imports import ImportService
 from app.services.media import LocalMediaService
+from app.services.media_urls import asset_delivery_url
 from app.services.orders import OrderService
 from app.services.products import ProductService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 BASE = Path(__file__).parent
-VERSIONED_ASSETS = ("style.css", "orders.js", "app.js")
+VERSIONED_ASSETS = ("style.css", "orders.js", "app.js", "desktop_exports.js")
 
 
 def _asset_version(path: Path) -> str:
@@ -144,7 +145,18 @@ def create_app(
             backend = "mongo"
         configure_services(app, db, storage, backend=backend)
         if settings.desktop_mode:
+            from app.services.desktop_exports import DesktopExportManager
+
+            export_root = (
+                getattr(app.state, "paths", None).root / "data" / "temp" / "exports"
+                if getattr(app.state, "paths", None)
+                else Path(settings.data_dir or ".") / "data" / "temp" / "exports"
+            )
+            app.state.desktop_exports = getattr(
+                app.state, "desktop_exports", None
+            ) or DesktopExportManager(export_root)
             try:
+                app.state.desktop_exports.cleanup_expired()
                 removed = await app.state.repositories.orders.cleanup_expired()
                 logging.getLogger(__name__).info("Expired order cleanup removed %s orders", removed)
             except Exception:
@@ -176,12 +188,11 @@ def create_app(
         static_base = BASE / "static"
     app.state.templates = Jinja2Templates(directory=template_base)
     app.state.templates.env.globals["asset_version"] = asset_version
-    app.state.templates.env.globals["imagekit_url"] = lambda asset: (
-        asset.url
-        if settings.desktop_mode and asset
-        else settings.imagekit_delivery_url(asset.file_path)
-        if asset
-        else None
+    app.state.templates.env.globals["asset_delivery_url"] = lambda asset: asset_delivery_url(
+        settings, asset
+    )
+    app.state.templates.env.globals["imagekit_url"] = lambda asset: asset_delivery_url(
+        settings, asset
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_host_list)
     app.mount("/static", StaticFiles(directory=static_base), name="static")

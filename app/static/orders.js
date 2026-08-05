@@ -59,10 +59,25 @@
     data.items.forEach((product) => {
       const card = document.createElement("article");
       card.className = "card product-search-card";
+      const preview = document.createElement("div");
+      preview.className = "product-search-preview";
       const image = document.createElement("img");
       image.className = "product-search-image";
-      image.src = product.image_url;
       image.alt = "";
+      const missing = document.createElement("div");
+      missing.className = "missing product-search-missing";
+      missing.textContent = "لا توجد معاينة";
+      missing.hidden = true;
+      image.addEventListener("error", () => {
+        image.hidden = true;
+        missing.hidden = false;
+      });
+      if (product.image_url) image.src = product.image_url;
+      else {
+        image.hidden = true;
+        missing.hidden = false;
+      }
+      preview.append(image, missing);
       const name = document.createElement("strong");
       name.className = "product-search-name";
       name.textContent = product.name;
@@ -181,6 +196,8 @@
       add.addEventListener("click", addProduct);
       addControls.append(quantityInput, add);
       card.append(image, name, addControls, error);
+      card.insertBefore(preview, image);
+      preview.appendChild(image);
       box.append(card);
     });
     if (!data.items.length) box.textContent = "لا توجد نتائج.";

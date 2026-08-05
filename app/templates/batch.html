@@ -3,7 +3,7 @@
 <h1 class="batch-title"><bdi>{{ batch.original_filename }}</bdi></h1>
 
 <div class="stats batch-stats">
-  <div><b>{{ total_images }}</b><span>كل سجلات الصور</span></div>
+  <div><b>{{ total_images }}</b><span>كل سجلات الصور الظاهرة</span></div>
   <div><b>{{ batch.uploaded_images }}</b><span>مرفوعة</span></div>
   <div><b>{{ counts.get('unnamed',0) }}</b><span>غير مسماة</span></div>
   <div><b>{{ counts.get('saved_as_product',0) }}</b><span>محفوظة</span></div>
@@ -11,33 +11,36 @@
   <div><b>{{ counts.get('upload_failed',0) }}</b><span>فاشلة</span></div>
 </div>
 
+<div class="batch-tools">
 <nav class="batch-filters" aria-label="تصفية صور الدفعة">
-{% for key,label,count in [
+{% for row in [
   ('all','الكل',total_images),
   ('unnamed','غير مسماة',counts.get('unnamed',0)),
   ('saved_as_product','محفوظة',counts.get('saved_as_product',0)),
-  ('ignored','متجاهلة',counts.get('ignored',0)),
+  ('ignored','متجاهلة',counts.get('ignored',0)) if not request.app.state.settings.desktop_mode else none,
   ('duplicate','مكررة',counts.get('duplicate',0)),
   ('upload_failed','فاشلة',counts.get('upload_failed',0))
 ] %}
+{% if row %}{% set key,label,count = row %}
   <a class="filter-button{% if status == key %} filter-button-active{% endif %}"
      href="?status={{ key }}&amp;page=1"{% if status == key %} aria-current="page"{% endif %}>
     <span>{{ label }}</span><b class="filter-count">{{ count }}</b>
   </a>
+{% endif %}
 {% endfor %}
 </nav>
-
-<form method="post" action="/imports/{{ batch.id }}/cleanup" data-confirm="هل تريد حذف الصور غير المستخدمة من ImageKit؟">
+<form method="post" action="/imports/{{ batch.id }}/cleanup" data-confirm="هل تريد حذف ملفات الصور المحلية غير المستخدمة في هذه الدفعة؟">
   <input type="hidden" name="csrf_token" value="{{ session.csrf }}">
   <input type="hidden" name="return_status" value="{{ status }}">
   <input type="hidden" name="return_page" value="{{ page }}">
-  <button class="danger">حذف الصور غير المستخدمة من ImageKit</button>
+  <button class="danger-outline compact">تنظيف الصور غير المستخدمة</button>
 </form>
+</div>
 
 <div class="grid">
 {% for i in images %}
   <article class="card image-card">
-    {% if i.image_asset %}<img src="{{ i.image_url }}" alt="الصورة {{ i.sequence_number }}">
+    {% if i.image_asset %}<img src="{{ asset_delivery_url(i.image_asset) }}" alt="الصورة {{ i.sequence_number }}">
     {% else %}<div class="missing">لا توجد معاينة</div>{% endif %}
     <small>رقم {{ i.sequence_number }} — {{ i.status }}</small>
     {% if i.error_message %}<p class="error">{{ i.error_message }}</p>{% endif %}
@@ -49,28 +52,18 @@
       <input name="name" placeholder="اسم المنتج" required>
       <button>حفظ كمنتج</button>
     </form>
-    <form method="post" action="/imports/images/{{ i.id }}/ignore">
+    <form method="post" action="/imports/images/{{ i.id }}/delete" data-confirm="هل تريد حذف هذه الصورة من الدفعة؟ لا يمكن التراجع عن هذه العملية.">
       <input type="hidden" name="csrf_token" value="{{ session.csrf }}">
       <input type="hidden" name="return_status" value="{{ status }}">
       <input type="hidden" name="return_page" value="{{ page }}">
-      <button class="secondary">تجاهل</button>
+      <button class="danger compact">حذف الصورة</button>
     </form>
     {% endif %}
   </article>
 {% else %}
-  {% set empty_labels = {'all':'صور في هذه الدفعة','unnamed':'صور غير مسماة','saved_as_product':'صور محفوظة','ignored':'صور متجاهلة','duplicate':'صور مكررة','upload_failed':'صور فاشلة'} %}
-  <section class="card empty-filter">
-    <h2>لا توجد {{ empty_labels.get(status, 'صور') }}.</h2>
-    {% if status != 'all' %}<a class="button" href="?status=all&amp;page=1">عرض كل الصور</a>{% endif %}
-  </section>
+  {% set empty_labels = {'all':'صور في هذه الدفعة','unnamed':'صور غير مسماة','saved_as_product':'صور محفوظة','duplicate':'صور مكررة','upload_failed':'صور فاشلة'} %}
+  <section class="card empty-filter"><h2>لا توجد {{ empty_labels.get(status, 'صور') }}.</h2>{% if status != 'all' %}<a class="button" href="?status=all&amp;page=1">عرض كل الصور</a>{% endif %}</section>
 {% endfor %}
 </div>
-
-{% if pages > 1 %}
-<nav class="pagination" aria-label="صفحات الصور">
-  {% if page > 1 %}<a class="button secondary" href="?status={{ status }}&amp;page={{ page - 1 }}">السابق</a>{% endif %}
-  <span>صفحة {{ page }} من {{ pages }}</span>
-  {% if page < pages %}<a class="button secondary" href="?status={{ status }}&amp;page={{ page + 1 }}">التالي</a>{% endif %}
-</nav>
-{% endif %}
+{% if pages > 1 %}<nav class="pagination" aria-label="صفحات الصور">{% if page > 1 %}<a class="button secondary" href="?status={{ status }}&amp;page={{ page - 1 }}">السابق</a>{% endif %}<span>صفحة {{ page }} من {{ pages }}</span>{% if page < pages %}<a class="button secondary" href="?status={{ status }}&amp;page={{ page + 1 }}">التالي</a>{% endif %}</nav>{% endif %}
 {% endblock %}
